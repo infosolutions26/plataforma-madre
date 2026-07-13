@@ -48,6 +48,22 @@ def health():
     return {"ok": True}
 
 
+@app.post("/api/_bootstrap_admins")
+def bootstrap_admins(db: Session = Depends(get_db)):
+    """Siembra los admins reales UNA sola vez en una base de datos nueva y vacía.
+    Se desactiva sola: si ya hay algún trabajador, no hace nada. Endpoint temporal
+    para el primer despliegue — se puede quitar después."""
+    if db.query(Trabajador).count() > 0:
+        raise HTTPException(status_code=400, detail="Ya hay trabajadores — no se vuelve a sembrar.")
+    db.add_all([
+        Trabajador(nombre="Admin", correo="info@solutionstaxes.com", rol=RolUsuario.admin, config_servicios=[]),
+        Trabajador(nombre="Andrés", correo="andres.tec.unam@gmail.com", rol=RolUsuario.admin, config_servicios=[]),
+        Trabajador(nombre="Carolina", correo="carolina@solutionstaxes.com", rol=RolUsuario.admin, config_servicios=[]),
+    ])
+    db.commit()
+    return {"ok": True, "sembrado": 3}
+
+
 # ---------- clientes ----------
 
 class ClienteIn(BaseModel):
