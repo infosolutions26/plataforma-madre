@@ -1,0 +1,1677 @@
+<title>Plataforma Madre</title>
+<style>
+  :root {
+    --bg: #f2f4f7;
+    --surface: #ffffff;
+    --surface-2: #e7ebf1;
+    --surface-3: #f5f7fa;
+    --ink: #16233d;
+    --ink-soft: #4c5872;
+    --ink-faint: #8590a6;
+    --line: #d7dce4;
+    --accent: #1c3f66;
+    --accent-soft: #e2e9f2;
+    --accent-ink: #14304f;
+    --warn: #92601c;
+    --warn-soft: #f1e6cd;
+    --crit: #9c3b34;
+    --crit-soft: #f4dedc;
+    --sidebar-bg: #0f2340;
+    --sidebar-ink: #e7ecf3;
+    --sidebar-ink-soft: #8fa0bc;
+    --sidebar-active: #1a3559;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0a0f1a;
+    --surface: #121a28;
+    --surface-2: #192335;
+    --surface-3: #0e1522;
+    --ink: #e6ebf3;
+    --ink-soft: #a7b2c6;
+    --ink-faint: #6c7891;
+    --line: #253046;
+    --accent: #6f9bcb;
+    --accent-soft: #1c2c42;
+    --accent-ink: #cfe0f2;
+    --warn: #d9a35d;
+    --warn-soft: #2e2415;
+    --crit: #e18077;
+    --crit-soft: #33201d;
+    --sidebar-bg: #060b13;
+    --sidebar-ink: #e7ecf3;
+    --sidebar-ink-soft: #6c7891;
+    --sidebar-active: #101a29;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0a0f1a;
+      --surface: #121a28;
+      --surface-2: #192335;
+      --surface-3: #0e1522;
+      --ink: #e6ebf3;
+      --ink-soft: #a7b2c6;
+      --ink-faint: #6c7891;
+      --line: #253046;
+      --accent: #6f9bcb;
+      --accent-soft: #1c2c42;
+      --accent-ink: #cfe0f2;
+      --warn: #d9a35d;
+      --warn-soft: #2e2415;
+      --crit: #e18077;
+      --crit-soft: #33201d;
+      --sidebar-bg: #060b13;
+      --sidebar-ink: #e7ecf3;
+      --sidebar-ink-soft: #6c7891;
+      --sidebar-active: #101a29;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    font-size: 14px;
+  }
+  button, input, select, textarea { font-family: inherit; font-size: inherit; color: inherit; }
+  code, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+  .app {
+    display: grid;
+    grid-template-columns: 216px 1fr;
+    height: 100vh;
+    max-width: 1180px;
+    margin: 0 auto;
+    background: var(--bg);
+  }
+
+  /* ---- sidebar ---- */
+  .sidebar {
+    background: var(--sidebar-bg);
+    color: var(--sidebar-ink);
+    padding: 20px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    height: 100vh;
+    overflow-y: auto;
+  }
+  .brand {
+    padding: 4px 10px 18px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    margin-bottom: 14px;
+  }
+  .brand .name { font-weight: 700; font-size: 14.5px; letter-spacing: -0.01em; }
+  .brand .tag {
+    display: inline-block;
+    margin-top: 6px;
+    font-size: 10px;
+    font-family: ui-monospace, monospace;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--warn);
+    background: rgba(217,163,93,0.14);
+    border: 1px solid rgba(217,163,93,0.35);
+    border-radius: 4px;
+    padding: 2px 6px;
+  }
+  .navitem {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 7px;
+    cursor: pointer;
+    color: var(--sidebar-ink-soft);
+    font-size: 13px;
+    font-weight: 500;
+    user-select: none;
+  }
+  .navitem .ic { width: 16px; text-align: center; font-family: ui-monospace, monospace; font-size: 12px; }
+  .navitem:hover { background: rgba(255,255,255,0.05); color: var(--sidebar-ink); }
+  .navitem.active { background: var(--sidebar-active); color: #fff; }
+  .navitem.active .ic { color: var(--accent); }
+  .navitem.hidden { display: none; }
+  .sidebar-foot {
+    margin-top: auto;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+  }
+  .session-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--sidebar-ink-soft); padding: 0 10px; margin-bottom: 6px; }
+  .session-hint { font-size: 10.5px; color: var(--sidebar-ink-soft); padding: 8px 10px 2px; line-height: 1.5; }
+
+  /* ---- main ---- */
+  .main {
+    background: var(--surface-3);
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+    flex: 0 0 auto;
+  }
+  .search-wrap { flex: 1; position: relative; max-width: 420px; }
+  .search-wrap input {
+    width: 100%;
+    padding: 8px 12px 8px 30px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-3);
+    color: var(--ink);
+    outline: none;
+  }
+  .search-wrap input:focus { border-color: var(--accent); }
+  .search-wrap::before {
+    content: "⌕";
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--ink-faint);
+    font-size: 14px;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--ink-faint); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.ghost { border-color: transparent; background: transparent; }
+  .btn.small { padding: 5px 10px; font-size: 12px; }
+  .btn.ok { background: var(--accent-soft); border-color: transparent; color: var(--accent-ink); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  .content { padding: 22px 24px 60px; overflow-x: hidden; overflow-y: auto; flex: 1 1 auto; }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  h1.page-title { font-size: 19px; font-weight: 700; margin: 0 0 3px; }
+  p.page-sub { color: var(--ink-soft); font-size: 13px; margin: 0 0 18px; max-width: 62ch; }
+  .view-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+
+  /* ---- stat tiles ---- */
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 22px; }
+  .stat-tile {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .stat-tile .lbl { font-size: 11px; color: var(--ink-soft); font-family: ui-monospace, monospace; text-transform: uppercase; letter-spacing: .04em; }
+  .stat-tile .val { font-size: 24px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .stat-tile .sub { font-size: 11.5px; color: var(--ink-faint); margin-top: 2px; }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px 18px;
+    margin-bottom: 18px;
+  }
+  .panel h2 { font-size: 14px; margin: 0 0 12px; font-weight: 700; }
+  .panel .h2row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .panel .h2row h2 { margin: 0; }
+
+  .bar-row { display: grid; grid-template-columns: 130px 1fr 60px; align-items: center; gap: 10px; margin-bottom: 9px; font-size: 12.5px; }
+  .bar-row .bname { color: var(--ink-soft); }
+  .bar-track { height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; background: var(--accent); }
+  .bar-row .bval { text-align: right; font-variant-numeric: tabular-nums; font-family: ui-monospace, monospace; color: var(--ink); }
+
+  /* ---- segmented control ---- */
+  .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; padding: 2px; background: var(--surface); gap: 2px; flex-wrap: wrap; }
+  .segmented button {
+    border: none; background: transparent; padding: 6px 12px; border-radius: 6px;
+    font-size: 12.5px; font-weight: 600; color: var(--ink-soft); cursor: pointer;
+  }
+  .segmented button.active { background: var(--accent); color: #fff; }
+
+  /* ---- table ---- */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+  th { font-family: ui-monospace, monospace; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: ui-monospace, monospace; }
+  tr.row-click { cursor: pointer; }
+  tr.row-click:hover td { background: var(--surface-3); }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  .table-wrap table { border-radius: 10px; overflow: hidden; }
+  .table-wrap tr:last-child td { border-bottom: none; }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 9px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill.ok { background: var(--accent-soft); color: var(--accent-ink); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.crit { background: var(--crit-soft); color: var(--crit); }
+  .pill.neutral { background: var(--surface-2); color: var(--ink-soft); }
+
+  .avatar {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent-ink);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 12px; flex: 0 0 auto;
+  }
+  .avatar.emp { background: var(--surface-2); color: var(--ink-soft); border-radius: 8px; }
+  .cell-name { display: flex; align-items: center; gap: 10px; }
+  .cell-name .nm { font-weight: 600; }
+  .cell-name .sub { font-size: 11.5px; color: var(--ink-faint); }
+
+  /* ---- profile ---- */
+  .profile-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+  .profile-id { display: flex; gap: 14px; align-items: center; }
+  .profile-id .avatar { width: 46px; height: 46px; font-size: 16px; border-radius: 12px; }
+  .profile-id h1 { margin: 0; font-size: 20px; }
+  .profile-id .meta-line { color: var(--ink-soft); font-size: 12.5px; margin-top: 3px; }
+  .profile-grid { display: grid; grid-template-columns: 260px 1fr; gap: 16px; align-items: start; }
+  .kv { display: flex; flex-direction: column; gap: 10px; }
+  .kv .row { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; padding: 7px 0; border-bottom: 1px dashed var(--line); }
+  .kv .row:last-child { border-bottom: none; }
+  .kv .row .k { color: var(--ink-soft); }
+  .kv .row .v { font-weight: 600; text-align: right; }
+  .ssn-mask { font-family: ui-monospace, monospace; }
+  .reveal-link { font-size: 11px; color: var(--accent); cursor: pointer; font-weight: 600; margin-left: 6px; }
+
+  .file-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--line); font-size: 12.5px; }
+  .file-row:last-child { border-bottom: none; }
+  .file-ic { width: 26px; height: 26px; border-radius: 6px; background: var(--surface-2); display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--ink-soft); flex: 0 0 auto; }
+  .file-row .fname { font-weight: 600; flex: 1; }
+  .file-row .fmeta { color: var(--ink-faint); font-size: 11px; }
+
+  /* ---- modal ---- */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(10,14,15,0.5);
+    display: none; align-items: flex-start; justify-content: center;
+    padding: 20px 16px; overflow-y: auto; z-index: 50;
+  }
+  .overlay.open { display: flex; }
+  #overlayCliente.open { z-index: 60; }
+  .modal {
+    background: var(--surface); border-radius: 12px; width: 100%; max-width: 560px;
+    border: 1px solid var(--line);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+  }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+  .modal-head h2 { margin: 0; font-size: 15px; }
+  .modal-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; max-height: 78vh; overflow-y: auto; }
+  .modal-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--line); }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 11.5px; font-weight: 600; color: var(--ink-soft); }
+  .field input, .field select, .field textarea, .comision-row input, .comision-row select {
+    padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-3); color: var(--ink); outline: none;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus, .comision-row input:focus, .comision-row select:focus { border-color: var(--accent); }
+  .field-fixed {
+    padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--ink); font-weight: 600;
+  }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .field-row3 { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 10px; }
+  .divider-lbl {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--accent);
+    font-weight: 700; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--line);
+  }
+  .comision-row { display: grid; grid-template-columns: 1.3fr 1fr 0.9fr auto; gap: 8px; align-items: end; }
+  .rm-btn { color: var(--crit); background: none; border: none; cursor: pointer; font-size: 16px; padding: 6px; line-height: 1; }
+  .hint { font-size: 11px; color: var(--ink-faint); }
+
+  /* ---- attach files / camera ---- */
+  .attach-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .attach-chip {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 10px;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--surface-3); font-size: 12px;
+  }
+  .attach-chip img { width: 26px; height: 26px; object-fit: cover; border-radius: 4px; }
+  .cam-panel { display: none; flex-direction: column; gap: 8px; align-items: flex-start; background: var(--surface-3); border: 1px dashed var(--line); border-radius: 8px; padding: 10px; }
+  .cam-panel.open { display: flex; }
+  .cam-panel video { width: 100%; max-width: 320px; border-radius: 6px; background: #000; }
+  .cam-error { font-size: 12px; color: var(--warn); }
+
+  /* ---- workers ---- */
+  .worker-card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; }
+  .worker-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .worker-name { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 13.5px; }
+  .config-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--surface-3); border: 1px solid var(--line); border-radius: 20px;
+    padding: 4px 10px 4px 6px; font-size: 11.5px; margin: 6px 6px 0 0;
+  }
+  .config-chip .pct { font-family: ui-monospace, monospace; font-weight: 700; color: var(--accent-ink); background: var(--accent-soft); border-radius: 10px; padding: 1px 7px; }
+  .perm-chip { font-size: 10.5px; font-family: ui-monospace, monospace; padding: 2px 7px; border-radius: 10px; background: var(--surface-2); color: var(--ink-faint); margin-left: 6px; }
+  .perm-chip.on { background: var(--accent-soft); color: var(--accent-ink); }
+
+  /* ---- nomina ---- */
+  .payee-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--line); }
+  .payee-row:last-child { border-bottom: none; }
+  .payee-left { display: flex; align-items: center; gap: 12px; }
+  .payee-amt { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .payee-sub { font-size: 11px; color: var(--ink-faint); }
+
+  .locked-box {
+    text-align: center; padding: 60px 20px; color: var(--ink-soft);
+  }
+  .locked-box .ic { font-size: 30px; margin-bottom: 10px; }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; }
+
+  @media (max-width: 760px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: 100vh; }
+    .sidebar { flex-direction: row; overflow-x: auto; overflow-y: hidden; height: auto; align-items: center; }
+    .brand { display: none; }
+    .sidebar-foot { margin-top: 0; padding-top: 0; border-top: none; }
+    .session-lbl { display: none; }
+    .main { height: auto; }
+    .stat-row { grid-template-columns: 1fr 1fr; }
+    .profile-grid { grid-template-columns: 1fr; }
+    .field-row, .field-row3 { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div id="loginGate" style="display:flex; position:fixed; inset:0; background:var(--bg); align-items:center; justify-content:center; z-index:100; flex-direction:column; gap:16px;">
+  <div style="text-align:center; padding:0 20px;">
+    <div style="font-weight:700; font-size:20px; margin-bottom:6px;">Solutions · Plataforma Madre</div>
+    <p class="page-sub" style="margin:0 auto 20px; max-width:40ch;">Inicia sesión con tu cuenta de Google para entrar.</p>
+    <a href="/auth/login" class="btn primary" style="padding:10px 20px;">Iniciar sesión con Google</a>
+  </div>
+</div>
+
+<div class="app" id="appRoot" style="display:none;">
+  <nav class="sidebar">
+    <div class="brand">
+      <div class="name">Solutions · Plataforma Madre</div>
+    </div>
+    <div class="navitem active" data-view="servicios"><span class="ic">☰</span> Servicios</div>
+    <div class="navitem" data-view="buscador"><span class="ic">◧</span> Clientes</div>
+    <div class="navitem" data-view="trabajadores"><span class="ic">◨</span> Trabajadores</div>
+    <div class="navitem" data-view="nomina"><span class="ic">$</span> Nómina</div>
+    <div class="navitem" data-view="stats"><span class="ic">▤</span> Estadísticas</div>
+    <div class="sidebar-foot">
+      <div class="session-lbl">Sesión iniciada como</div>
+      <div style="display:flex; align-items:center; gap:10px; padding:6px 10px;">
+        <span class="avatar" id="userAvatar">--</span>
+        <div style="flex:1; min-width:0;">
+          <div id="userName" style="font-weight:700; font-size:12.5px; color:var(--sidebar-ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">—</div>
+          <div id="userRol" style="font-size:10.5px; color:var(--sidebar-ink-soft);">—</div>
+        </div>
+      </div>
+      <button class="btn small" id="btnLogout" type="button" style="width:100%; margin-top:4px;">Cerrar sesión</button>
+      <div class="session-hint" id="sessionHint"></div>
+    </div>
+  </nav>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="search-wrap"><input id="globalSearch" type="text" placeholder="Buscar cliente, empresa, teléfono…"></div>
+      <button class="btn primary" id="btnNuevoServicioTop">+ Nuevo servicio</button>
+      <button class="btn" id="btnNuevoClienteTop">+ Nuevo cliente</button>
+    </div>
+
+    <div class="content">
+
+      <!-- ================= SERVICIOS (mi trabajo) ================= -->
+      <section class="view active" id="view-servicios">
+        <h1 class="page-title">Mis servicios</h1>
+        <p class="page-sub">Todos los servicios que has hecho, de cualquier cliente — clic en una fila para ir actualizando su estatus de taxes y revisar el estatus de tu comisión.</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th class="num">Cobro</th><th>Estatus</th><th>Comisión</th></tr>
+            </thead>
+            <tbody id="serviciosTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ================= BUSCADOR ================= -->
+      <section class="view" id="view-buscador">
+        <h1 class="page-title" id="clientesTitle">Clientes y empresas</h1>
+        <p class="page-sub" id="clientesSub">Personas y empresas en una sola lista — clic en una fila para ver su perfil completo.</p>
+        <div class="stat-row" id="misStatsRow" style="display:none;"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Nombre</th><th>Tipo</th><th>Giro / actividad</th><th>Último servicio</th><th>Estado</th></tr>
+            </thead>
+            <tbody id="clientTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ================= PERFIL ================= -->
+      <section class="view" id="view-perfil">
+        <button class="btn ghost small" id="btnBackToList">← Volver a clientes</button>
+        <div class="profile-head" style="margin-top:12px;">
+          <div class="profile-id">
+            <div class="avatar" id="profAvatar">MT</div>
+            <div>
+              <h1 id="profName">—</h1>
+              <div class="meta-line" id="profMeta">—</div>
+            </div>
+          </div>
+          <button class="btn primary" id="btnNuevoServicioProfile">+ Nuevo servicio</button>
+        </div>
+
+        <div class="profile-grid">
+          <div>
+            <div class="panel">
+              <h2>Datos generales</h2>
+              <div class="kv" id="profKv"></div>
+            </div>
+            <div class="panel">
+              <h2>Archivos (Google Drive)</h2>
+              <div id="profFiles"></div>
+              <div class="attach-row" style="margin-top:10px;">
+                <label class="btn small" for="profFileInput">📎 Elegir archivo</label>
+                <input type="file" id="profFileInput" style="display:none;" accept="image/*,.pdf" multiple>
+                <button class="btn small" id="btnTomarFotoProfile" type="button">📷 Tomar foto</button>
+              </div>
+              <div class="cam-panel" id="camPanelProfile">
+                <video id="camVideoProfile" autoplay playsinline></video>
+                <canvas id="camCanvasProfile" style="display:none;"></canvas>
+                <div id="camErrorProfile" class="cam-error"></div>
+                <div style="display:flex; gap:8px;">
+                  <button class="btn small primary" id="btnCapturarProfile" type="button">Capturar</button>
+                  <button class="btn small" id="btnCerrarCamProfile" type="button">Cerrar cámara</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="panel">
+              <h2>Historial de servicios</h2>
+              <p class="hint" id="profServicesHint" style="margin:-6px 0 10px;">Clic en una fila para editarla — los datos se van actualizando con el tiempo.</p>
+              <div class="table-wrap" style="border:none;">
+                <table>
+                  <thead><tr><th>Fecha</th><th>Servicio</th><th>Trabajador</th><th class="num">Cobro</th><th>Estado</th></tr></thead>
+                  <tbody id="profServiceBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TRABAJADORES ================= -->
+      <section class="view" id="view-trabajadores">
+        <div class="view-head">
+          <div>
+            <h1 class="page-title">Trabajadores</h1>
+            <p class="page-sub">Solo el Admin ve esta página. Cada trabajador configura aquí qué servicios da y su % de comisión — con eso se calcula automático la comisión de cada servicio que registre.</p>
+          </div>
+          <button class="btn primary" id="btnNuevoTrabajador">+ Nuevo trabajador</button>
+        </div>
+        <div id="workersList"></div>
+      </section>
+
+      <!-- ================= NÓMINA ================= -->
+      <section class="view" id="view-nomina">
+        <div id="nominaLocked" class="locked-box" style="display:none;">
+          <div class="ic">🔒</div>
+          <div><strong>No tienes acceso a Nómina.</strong></div>
+          <div class="hint">Solo el Admin puede ver Nómina.</div>
+        </div>
+        <div id="nominaContent">
+          <h1 class="page-title">Nómina y comisiones</h1>
+          <p class="page-sub">Ligado directo a <code>servicio</code> — al marcar un pago, esas comisiones dejan de aparecer como pendientes, igual que en la hoja de antes.</p>
+
+          <div class="stat-row" id="nominaResumen"></div>
+
+          <div class="panel">
+            <div class="h2row"><h2>Pendiente de pago, por trabajador</h2></div>
+            <div id="nominaPendientes"></div>
+          </div>
+
+          <div class="panel">
+            <h2>Historial de pagos hechos</h2>
+            <div class="table-wrap" style="border:none;">
+              <table>
+                <thead><tr><th>Fecha de pago</th><th>Trabajador</th><th class="num"># servicios</th><th class="num">Monto</th></tr></thead>
+                <tbody id="nominaHistorial"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= STATS ================= -->
+      <section class="view" id="view-stats">
+        <div id="statsLocked" class="locked-box" style="display:none;">
+          <div class="ic">🔒</div>
+          <div><strong>No tienes acceso a Estadísticas.</strong></div>
+          <div class="hint">Solo el Admin puede ver Estadísticas.</div>
+        </div>
+        <div id="statsContent">
+          <div class="view-head" style="margin-bottom:14px;">
+            <div>
+              <h1 class="page-title">Estadística de la empresa</h1>
+              <p class="page-sub">Ingresos, comisiones y actividad — calculado directo de <code>servicio</code> y <code>comisión</code>.</p>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:flex-end; gap:8px;">
+              <div class="segmented" id="statsPeriodo"></div>
+              <button class="btn small" id="btnNuevaTemporada" type="button">+ Nueva temporada</button>
+            </div>
+          </div>
+
+          <div class="stat-row" id="statsResumen"></div>
+
+          <div class="panel">
+            <h2>Ingresos por línea de servicio</h2>
+            <div id="barLineas"></div>
+          </div>
+          <div class="panel">
+            <h2>Comisiones pendientes por trabajador</h2>
+            <div id="barTrabajadores"></div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: nuevo/editar servicio ============ -->
+<div class="overlay" id="overlayServicio">
+  <div class="modal">
+    <div class="modal-head"><h2 id="svcModalTitle">Nuevo servicio</h2><button class="btn ghost small" data-close>✕</button></div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Cliente</label>
+        <select id="svcCliente"></select>
+      </div>
+      <div class="field">
+        <label>Trabajador asignado</label>
+        <div class="field-fixed" id="svcTrabajadorFixed" style="display:none;"></div>
+        <select id="svcTrabajadorSelect" style="display:none;"></select>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Tipo de servicio</label><select id="svcTipo"></select></div>
+        <div class="field"><label>Fecha</label><input type="date" id="svcFecha"></div>
+      </div>
+
+      <div id="svcDetalleExtra" style="display:flex; flex-direction:column; gap:14px;"></div>
+
+      <div class="divider-lbl">Núcleo (común a todas las líneas)</div>
+      <div class="field-row3">
+        <div class="field"><label>Cobro</label><input type="number" id="svcCobro" placeholder="0"></div>
+        <div class="field"><label>Método de pago</label><select id="svcMetodo"><option>Zelle</option><option>Cash</option><option>Card</option><option>Banco</option></select></div>
+        <div class="field"><label>Estatus de pago</label><select id="svcEstatus"></select></div>
+      </div>
+      <p class="hint">Es el estatus de cobro. El progreso del trámite (para Taxes) se actualiza en "Status taxes" arriba.</p>
+      <div class="field"><label>Notas</label><textarea id="svcNotas" rows="2"></textarea></div>
+
+      <div class="divider-lbl">Documento adjunto</div>
+      <div class="attach-row">
+        <label class="btn small" for="svcFileInput">📎 Elegir archivo</label>
+        <input type="file" id="svcFileInput" style="display:none;" accept="image/*,.pdf" multiple>
+        <button class="btn small" id="btnTomarFoto" type="button">📷 Tomar foto</button>
+      </div>
+      <div class="cam-panel" id="camPanel">
+        <video id="camVideo" autoplay playsinline></video>
+        <canvas id="camCanvas" style="display:none;"></canvas>
+        <div id="camError" class="cam-error"></div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn small primary" id="btnCapturar" type="button">Capturar</button>
+          <button class="btn small" id="btnCerrarCam" type="button">Cerrar cámara</button>
+        </div>
+      </div>
+      <div class="attach-row" id="svcArchivosList"></div>
+
+      <div class="divider-lbl">Comisión</div>
+      <div class="field-fixed" id="svcComisionInfo">—</div>
+      <p class="hint">Se calcula automático con el % configurado del trabajador asignado para este tipo de servicio — se edita en Trabajadores, no aquí.</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost small" id="btnEliminarServicio" style="display:none; color:var(--crit);">Eliminar servicio</button>
+      <div style="display:flex; gap:8px; margin-left:auto;">
+        <button class="btn" data-close>Cancelar</button>
+        <button class="btn primary" id="btnGuardarServicio">Guardar servicio</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: nuevo cliente ============ -->
+<div class="overlay" id="overlayCliente">
+  <div class="modal">
+    <div class="modal-head"><h2>Nuevo cliente / empresa</h2><button class="btn ghost small" data-close>✕</button></div>
+    <div class="modal-body">
+      <div class="field-row">
+        <div class="field"><label>Tipo</label><select id="cliTipo"><option value="persona">Persona</option><option value="empresa">Empresa</option></select></div>
+        <div class="field"><label>Nombre / razón social</label><input id="cliNombre" placeholder="Nombre completo o LLC"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Teléfono</label><input id="cliTelefono" placeholder="(312) 555-0100"></div>
+        <div class="field"><label id="cliSsnLabel">SSN / ITIN completo</label><input id="cliSsn" placeholder="123-45-6789"></div>
+      </div>
+      <div class="field" id="cliGiroWrap" style="display:none;"><label>Giro</label><input id="cliGiro" placeholder="Construction, Ecommerce…"></div>
+      <p class="hint">Se guarda cifrado; en la plataforma se muestra enmascarado (•••-••-1234) salvo que alguien lo revele explícitamente — queda registrado quién lo hizo.</p>
+    </div>
+    <div class="modal-foot">
+      <div></div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn" data-close>Cancelar</button>
+        <button class="btn primary" id="btnGuardarCliente">Guardar cliente</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: nuevo trabajador ============ -->
+<div class="overlay" id="overlayTrabajador">
+  <div class="modal">
+    <div class="modal-head"><h2>Nuevo trabajador</h2><button class="btn ghost small" data-close>✕</button></div>
+    <div class="modal-body">
+      <div class="field-row">
+        <div class="field"><label>Nombre</label><input id="trbNombre" placeholder="Nombre del trabajador"></div>
+        <div class="field"><label>Correo (con el que inicia sesión)</label><input id="trbCorreo" placeholder="nombre@dominio.com"></div>
+      </div>
+      <p class="hint" id="trbHintNuevo">Todo trabajador nuevo ve solo Clientes y los servicios que le configures abajo — Nómina, Trabajadores y Estadísticas son exclusivos del Admin. El correo debe ser el mismo con el que inicia sesión con Google.</p>
+      <div class="divider-lbl">Servicios que da y % / monto por defecto</div>
+      <div id="trbConfigRows"></div>
+      <button class="btn small" id="btnAddTrbConfig" type="button">+ agregar servicio</button>
+    </div>
+    <div class="modal-foot">
+      <div></div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn" data-close>Cancelar</button>
+        <button class="btn primary" id="btnGuardarTrabajador">Guardar trabajador</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: nueva temporada ============ -->
+<div class="overlay" id="overlayTemporada">
+  <div class="modal">
+    <div class="modal-head"><h2>Nueva temporada</h2><button class="btn ghost small" data-close>✕</button></div>
+    <div class="modal-body">
+      <div class="field"><label>Nombre</label><input id="tmpNombre" placeholder="ej. Temporada 2027"></div>
+      <div class="field-row">
+        <div class="field"><label>Desde</label><input type="date" id="tmpDesde"></div>
+        <div class="field"><label>Hasta</label><input type="date" id="tmpHasta"></div>
+      </div>
+      <p class="hint">Los servicios cuya fecha caiga en este rango se agrupan bajo este nombre en Estadísticas, en vez de usar el cálculo automático (temporada = enero–abril).</p>
+    </div>
+    <div class="modal-foot">
+      <div></div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn" data-close>Cancelar</button>
+        <button class="btn primary" id="btnGuardarTemporada">Crear temporada</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var STATUS_TAXES_OPTIONS = ["Transmitido Aceptado","Enviado por Correo","En proceso / Incompleto","Rechazado","Pendiente de Correo","Revisión Pendiente","Listo para Transmitir","Enviado a Certificar"];
+  var SERVICE_TYPES = {
+    "Taxes 1040": { linea: "Taxes", extra: [
+      {key:"ssn", label:"SSN / ITIN completo", type:"text"},
+      {key:"anio", label:"Año de servicio", type:"select", options:["2026","2025","2024"]},
+      {key:"tipoCita", label:"Tipo de cita", type:"select", options:["Presencial","Virtual","Llamada / mensaje"]},
+      {key:"statusTaxes", label:"Status taxes", type:"select", options:STATUS_TAXES_OPTIONS, default:"En proceso / Incompleto"}
+    ]},
+    "ITIN + Taxes": { linea: "Taxes", extra: [
+      {key:"ssn", label:"ITIN (si ya existe)", type:"text"},
+      {key:"anio", label:"Año de servicio", type:"select", options:["2026","2025","2024"]},
+      {key:"statusTaxes", label:"Status taxes", type:"select", options:STATUS_TAXES_OPTIONS, default:"En proceso / Incompleto"}
+    ]},
+    "Contabilidad Completa": { linea: "Contabilidad", extra: [
+      {key:"nivel", label:"Nivel", type:"select", options:["1","2","3","4"]},
+      {key:"meses", label:"# meses a realizar", type:"number"},
+      {key:"credito", label:"¿Con crédito bancario?", type:"select", options:["No","Sí"]}
+    ]},
+    "Contabilidad Express": { linea: "Contabilidad", extra: [
+      {key:"meses", label:"# meses a realizar", type:"number"},
+      {key:"credito", label:"¿Con crédito bancario?", type:"select", options:["No","Sí"]}
+    ]},
+    "Asesoría": { linea: "Capital", extra: [
+      {key:"tipoCita", label:"Tipo de cita", type:"select", options:["Presencial","Virtual"]}
+    ]},
+    "Plan de Acción": { linea: "Capital", extra: [
+      {key:"progreso", label:"Progreso del plan", type:"select", options:["1/6","2/6","3/6","4/6","5/6","6/6"]},
+      {key:"tipoCita", label:"Tipo de cita", type:"select", options:["Presencial","Virtual"]}
+    ]},
+    "Annual Fee": { linea: "Otros servicios", extra: [
+      {key:"formato", label:"Formato / canal", type:"select", options:["CRM","Presencial","WhatsApp"]},
+      {key:"fechaEnvio", label:"Fecha de envío/transmisión", type:"date"}
+    ]},
+    "Statement of Information": { linea: "Otros servicios", extra: [
+      {key:"formato", label:"Formato / canal", type:"select", options:["CRM","Presencial","WhatsApp"]}
+    ]},
+    "Good Standing": { linea: "Otros servicios", extra: [
+      {key:"formato", label:"Formato / canal", type:"select", options:["CRM","Presencial","WhatsApp"]}
+    ]}
+  };
+  var ALL_TIPOS = Object.keys(SERVICE_TYPES);
+  var ESTATUS_PAGO_BASE = ["Pendiente de pago", "Pagado"];
+  var ESTATUS_PAGO_TAXES = ["Pendiente de pago", "Pagado", "Cortesía", "Banco"];
+  var SISTEMA_CONTAS_URL = "https://contas-2f4b.onrender.com/";
+
+  var state = {
+    currentUser: null,
+    currentProfile: null,       // {tipo, id}
+    editingServiceId: null,
+    editingWorkerId: null,
+    clienteModalChained: false,
+    pendingArchivos: [],
+    camStream: null,
+    camStreamProfile: null,
+    statsPeriodo: "Todo",
+    workersBasico: [],
+    comisionYaPagada: false
+  };
+
+  function money(n){ return "$" + Number(n||0).toLocaleString("en-US"); }
+  function initials(name){ return (name||"").split(" ").slice(0,2).map(function(w){return w[0]||"";}).join("").toUpperCase(); }
+  function el(tag, cls, html){ var e=document.createElement(tag); if(cls) e.className=cls; if(html!==undefined) e.innerHTML=html; return e; }
+  function statusPill(s){
+    var cls = "neutral";
+    if (/aceptado|pagad|transmitido/i.test(s)) cls = "ok";
+    else if (/pendiente|proceso|extension|enviado/i.test(s)) cls = "warn";
+    else if (/rechazad|cancel/i.test(s)) cls = "crit";
+    return '<span class="pill ' + cls + '">' + s + '</span>';
+  }
+
+  // ---------- API helper ----------
+  function api(path, opts){
+    opts = opts || {};
+    var fetchOpts = { credentials: "same-origin", method: opts.method || "GET" };
+    if (opts.body !== undefined) {
+      fetchOpts.body = JSON.stringify(opts.body);
+      fetchOpts.headers = { "Content-Type": "application/json" };
+    }
+    return fetch(path, fetchOpts).then(function(res){
+      if (res.status === 401) { showLoginGate(); throw new Error("no-auth"); }
+      if (!res.ok) {
+        return res.json().catch(function(){ return {}; }).then(function(j){
+          throw new Error(j.detail || (res.status + " " + res.statusText));
+        });
+      }
+      if (res.status === 204) return null;
+      return res.json();
+    });
+  }
+
+  function showLoginGate(){
+    document.getElementById("loginGate").style.display = "flex";
+    document.getElementById("appRoot").style.display = "none";
+  }
+
+  // ---------- navigation ----------
+  function showView(name){
+    document.querySelectorAll(".view").forEach(function(v){ v.classList.remove("active"); });
+    document.getElementById("view-" + name).classList.add("active");
+    document.querySelectorAll(".navitem").forEach(function(n){ n.classList.toggle("active", n.dataset.view === name); });
+  }
+  document.querySelectorAll(".navitem").forEach(function(n){
+    n.addEventListener("click", function(){
+      if (n.classList.contains("hidden")) return;
+      showView(n.dataset.view);
+      if (n.dataset.view === "servicios") renderServiciosTable();
+      if (n.dataset.view === "buscador") renderClientTable();
+      if (n.dataset.view === "trabajadores") renderWorkers();
+      if (n.dataset.view === "stats") renderStats();
+      if (n.dataset.view === "nomina") renderNomina();
+    });
+  });
+
+  // ---------- mis servicios (dashboard personal) ----------
+  function renderServiciosTable(){
+    var tbody = document.getElementById("serviciosTableBody");
+    tbody.innerHTML = '<tr><td colspan="6"><p class="hint" style="padding:14px 0;">Cargando…</p></td></tr>';
+    api("/api/servicios/mios").then(function(lista){
+      tbody.innerHTML = "";
+      if (!lista.length) {
+        tbody.innerHTML = '<tr><td colspan="6"><p class="hint" style="padding:14px 0;">Todavía no tienes servicios registrados.</p></td></tr>';
+        return;
+      }
+      lista.forEach(function(s){
+        var tr = el("tr","row-click");
+        var comisionHtml = "—";
+        if (s.comision_monto !== null && s.comision_monto !== undefined) {
+          comisionHtml = money(s.comision_monto) + " " + (s.comision_estado === "pagada" ? '<span class="pill ok">pagada</span>' : '<span class="pill warn">pendiente</span>');
+        }
+        tr.innerHTML = '<td>'+s.fecha+'</td><td>'+(s.cliente||"—")+'</td><td>'+s.tipo+'</td><td class="num">'+money(s.cobro)+'</td><td>'+statusPill(s.estatus)+'</td><td>'+comisionHtml+'</td>';
+        tr.addEventListener("click", function(){ openServicioModal(s.id, null); });
+        tbody.appendChild(tr);
+      });
+    }).catch(function(e){ if (e.message !== "no-auth") console.error(e); });
+  }
+
+  // ---------- session / permissions ----------
+  function applyPermissions(){
+    var u = state.currentUser;
+    var isAdmin = u.rol === "admin";
+    document.getElementById("userAvatar").textContent = initials(u.nombre);
+    document.getElementById("userName").textContent = u.nombre;
+    document.getElementById("userRol").textContent = isAdmin ? "Admin" : "Trabajador";
+    document.getElementById("sessionHint").textContent = isAdmin
+      ? "Admin: ve y modifica todo — trabajadores, nómina, estadísticas, temporadas."
+      : "Solo ves tus propios clientes (a los que les has hecho un servicio) y tus tipos de servicio configurados.";
+    document.querySelector('.navitem[data-view="nomina"]').classList.toggle("hidden", !isAdmin);
+    document.querySelector('.navitem[data-view="stats"]').classList.toggle("hidden", !isAdmin);
+    document.querySelector('.navitem[data-view="trabajadores"]').classList.toggle("hidden", !isAdmin);
+    document.getElementById("nominaLocked").style.display = isAdmin ? "none" : "block";
+    document.getElementById("nominaContent").style.display = isAdmin ? "block" : "none";
+    document.getElementById("statsLocked").style.display = isAdmin ? "none" : "block";
+    document.getElementById("statsContent").style.display = isAdmin ? "block" : "none";
+    showView("servicios");
+    renderServiciosTable();
+  }
+
+  // ---------- client list ----------
+  var searchTimer = null;
+  document.getElementById("globalSearch").addEventListener("input", function(e){
+    clearTimeout(searchTimer);
+    var v = e.target.value;
+    searchTimer = setTimeout(function(){ renderClientTable(v); }, 200);
+  });
+
+  function renderClientTable(filterText){
+    var u = state.currentUser;
+    var isAdmin = u.rol === "admin";
+    var titleEl = document.getElementById("clientesTitle");
+    var subEl = document.getElementById("clientesSub");
+    var statsRow = document.getElementById("misStatsRow");
+    var q = filterText !== undefined ? filterText : document.getElementById("globalSearch").value;
+    if (isAdmin) {
+      titleEl.textContent = "Clientes y empresas";
+      subEl.textContent = "Personas y empresas en una sola lista — clic en una fila para ver su perfil completo.";
+      statsRow.style.display = "none";
+    } else {
+      titleEl.textContent = "Mis clientes";
+      subEl.textContent = "Solo los clientes a los que les has hecho un servicio — clic en una fila para ver el detalle y editar.";
+      statsRow.style.display = "grid";
+    }
+    return api("/api/clientes" + (q ? ("?q=" + encodeURIComponent(q)) : "")).then(function(lista){
+      if (!isAdmin) renderMisStats(lista.length);
+      var tbody = document.getElementById("clientTableBody");
+      tbody.innerHTML = "";
+      if (!lista.length) {
+        tbody.innerHTML = '<tr><td colspan="5"><p class="hint" style="padding:14px 0;">' +
+          (!isAdmin ? "Todavía no tienes servicios asignados." : "Sin resultados.") + '</p></td></tr>';
+        return;
+      }
+      lista.forEach(function(c){
+        var tr = el("tr","row-click");
+        tr.innerHTML =
+          '<td><div class="cell-name"><span class="avatar' + (c.tipo==="empresa"?" emp":"") + '">' + (c.tipo==="empresa" ? "⌂" : initials(c.nombre)) + '</span>' +
+            '<div><div class="nm">' + c.nombre + '</div><div class="sub">' + (c.telefono||"—") + '</div></div></div></td>' +
+          '<td>' + (c.tipo==="empresa" ? "Empresa" : "Persona") + '</td>' +
+          '<td>' + (c.giro || "—") + '</td>' +
+          '<td>' + (c.ultimo_servicio || "Sin servicios") + '</td>' +
+          '<td>' + statusPill(c.actividad) + '</td>';
+        tr.addEventListener("click", function(){ openProfile(c.tipo, c.id); });
+        tbody.appendChild(tr);
+      });
+    }).catch(function(e){ if (e.message !== "no-auth") console.error(e); });
+  }
+
+  function renderMisStats(misClientesCount){
+    var statsRow = document.getElementById("misStatsRow");
+    api("/api/servicios/mios").then(function(misServicios){
+      var enProceso = misServicios.filter(function(s){ return /proceso|pendiente/i.test(s.estatus); }).length;
+      var hoy = new Date().toISOString().slice(0,7);
+      var esteMes = misServicios.filter(function(s){ return s.fecha.slice(0,7) === hoy; }).length;
+      statsRow.innerHTML =
+        '<div class="stat-tile"><div class="lbl">Mis clientes</div><div class="val">' + misClientesCount + '</div><div class="sub">con al menos 1 servicio</div></div>' +
+        '<div class="stat-tile"><div class="lbl">Mis servicios totales</div><div class="val">' + misServicios.length + '</div><div class="sub">todas las líneas</div></div>' +
+        '<div class="stat-tile"><div class="lbl">En proceso / pendientes</div><div class="val">' + enProceso + '</div><div class="sub">requieren seguimiento</div></div>' +
+        '<div class="stat-tile"><div class="lbl">Este mes</div><div class="val">' + esteMes + '</div><div class="sub">servicios registrados</div></div>';
+    });
+  }
+
+  // ---------- profile ----------
+  function openProfile(tipo, id){
+    state.currentProfile = {tipo: tipo, id: id};
+    api("/api/clientes/" + tipo + "/" + id).then(function(c){
+      document.getElementById("profAvatar").textContent = tipo==="empresa" ? "⌂" : initials(c.nombre);
+      document.getElementById("profAvatar").className = "avatar" + (tipo==="empresa" ? " emp" : "");
+      document.getElementById("profName").textContent = c.nombre;
+      document.getElementById("profMeta").textContent = (tipo==="empresa" ? "Empresa · " + (c.giro||"giro sin definir") : "Persona") + " · " + (c.telefono||"—");
+
+      var kv = document.getElementById("profKv");
+      kv.innerHTML = "";
+      function row(k,v){ var d=el("div","row"); d.innerHTML='<span class="k">'+k+'</span><span class="v">'+v+'</span>'; kv.appendChild(d); }
+      row("Tipo", tipo==="empresa" ? "Empresa" : "Persona");
+      row("Teléfono", c.telefono || "—");
+      if (tipo==="empresa") row("Giro", c.giro || "—");
+      if (tipo==="persona" && c.ssn_last4) {
+        row("SSN", '<span class="ssn-mask" id="ssnDisplay">•••-••-' + c.ssn_last4 + '</span><span class="reveal-link" id="ssnReveal">revelar</span>');
+      }
+      row("Estado", statusPill(c.actividad));
+      if (c.ghl_contact_id) row("GHL contact_id", '<span class="mono">' + c.ghl_contact_id + '</span>');
+
+      var revealBtn = document.getElementById("ssnReveal");
+      if (revealBtn) {
+        var revealed = false, fullValue = null;
+        revealBtn.addEventListener("click", function(){
+          if (!revealed) {
+            (fullValue ? Promise.resolve({ssn_full: fullValue}) : api("/api/clientes/persona/" + id + "/ssn")).then(function(r){
+              fullValue = r.ssn_full;
+              document.getElementById("ssnDisplay").textContent = fullValue;
+              revealBtn.textContent = "ocultar";
+              revealed = true;
+            });
+          } else {
+            document.getElementById("ssnDisplay").textContent = "•••-••-" + c.ssn_last4;
+            revealBtn.textContent = "revelar";
+            revealed = false;
+          }
+        });
+      }
+
+      renderProfFiles();
+      stopCameraProfile();
+      renderProfileServices();
+      showView("perfil");
+    }).catch(function(e){ if (e.message !== "no-auth") alert("No se pudo cargar el cliente: " + e.message); });
+  }
+
+  function renderProfFiles(){
+    var files = document.getElementById("profFiles");
+    files.innerHTML = '<p class="hint">Cargando…</p>';
+    api("/api/clientes/" + state.currentProfile.tipo + "/" + state.currentProfile.id + "/archivos").then(function(archivos){
+      files.innerHTML = "";
+      if (!archivos.length) { files.innerHTML = '<p class="hint">Sin archivos todavía.</p>'; return; }
+      archivos.forEach(function(f){
+        var r = el("div","file-row");
+        r.innerHTML = '<span class="file-ic">' + (f.tipo === "foto" ? "📷" : "▤") + '</span>' +
+          '<span class="fname">'+f.nombre+'</span><span class="fmeta">'+(f.tipo==="foto"?"Foto tomada en la plataforma":"Subido a Drive")+'</span>';
+        var rm = el("button","rm-btn","✕"); rm.type="button"; rm.style.fontSize="12px";
+        rm.addEventListener("click", function(){ api("/api/archivos/" + f.id, {method:"DELETE"}).then(renderProfFiles); });
+        r.appendChild(rm);
+        files.appendChild(r);
+      });
+    });
+  }
+  document.getElementById("profFileInput").addEventListener("change", function(){
+    var files = Array.prototype.slice.call(this.files);
+    var input = this;
+    var chain = Promise.resolve();
+    files.forEach(function(f){
+      chain = chain.then(function(){
+        var body = { nombre: f.name, tipo: "archivo" };
+        body[state.currentProfile.tipo + "_id"] = state.currentProfile.id;
+        return api("/api/archivos", {method:"POST", body: body});
+      });
+    });
+    chain.then(function(){ input.value = ""; renderProfFiles(); });
+  });
+  function stopCameraProfile(){
+    if (state.camStreamProfile) { state.camStreamProfile.getTracks().forEach(function(t){ t.stop(); }); state.camStreamProfile = null; }
+    document.getElementById("camPanelProfile").classList.remove("open");
+    document.getElementById("camErrorProfile").textContent = "";
+  }
+  document.getElementById("btnTomarFotoProfile").addEventListener("click", function(){
+    var panel = document.getElementById("camPanelProfile");
+    panel.classList.add("open");
+    var errBox = document.getElementById("camErrorProfile");
+    errBox.textContent = "";
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      errBox.textContent = "Este navegador no expone la cámara. Usa 'Elegir archivo' para subir la foto en su lugar.";
+      return;
+    }
+    navigator.mediaDevices.getUserMedia({ video: true }).then(function(stream){
+      state.camStreamProfile = stream;
+      document.getElementById("camVideoProfile").srcObject = stream;
+    }).catch(function(err){
+      errBox.textContent = "No se pudo acceder a la cámara (" + err.name + ").";
+    });
+  });
+  document.getElementById("btnCerrarCamProfile").addEventListener("click", stopCameraProfile);
+  document.getElementById("btnCapturarProfile").addEventListener("click", function(){
+    if (!state.camStreamProfile) return;
+    var body = { nombre: "Foto - " + new Date().toLocaleTimeString() + ".jpg", tipo: "foto" };
+    body[state.currentProfile.tipo + "_id"] = state.currentProfile.id;
+    api("/api/archivos", {method:"POST", body: body}).then(function(){
+      renderProfFiles();
+      stopCameraProfile();
+    });
+  });
+
+  function renderProfileServices(){
+    var u = state.currentUser;
+    var tbody = document.getElementById("profServiceBody");
+    document.getElementById("profServicesHint").textContent = u.rol === "admin"
+      ? "Clic en una fila para editarla — los datos se van actualizando con el tiempo."
+      : "Solo tus propios servicios con este cliente. Clic en una fila para editarla — útil para ir actualizando el status de taxes día a día.";
+    tbody.innerHTML = '<tr><td colspan="5"><p class="hint" style="padding:10px 0;">Cargando…</p></td></tr>';
+    api("/api/clientes/" + state.currentProfile.tipo + "/" + state.currentProfile.id + "/servicios").then(function(lista){
+      tbody.innerHTML = "";
+      if (!lista.length) {
+        tbody.innerHTML = '<tr><td colspan="5"><p class="hint" style="padding:10px 0;">Sin servicios tuyos con este cliente todavía.</p></td></tr>';
+        return;
+      }
+      lista.forEach(function(s){
+        var tr = el("tr","row-click");
+        tr.innerHTML = '<td>'+s.fecha+'</td><td>'+s.tipo+'</td><td>'+s.trabajador+'</td><td class="num">'+money(s.cobro)+'</td><td>'+statusPill(s.estatus)+'</td>';
+        tr.addEventListener("click", function(){ openServicioModal(s.id, null); });
+        tbody.appendChild(tr);
+      });
+    });
+  }
+  document.getElementById("btnBackToList").addEventListener("click", function(){ showView("buscador"); });
+
+  // ---------- modals ----------
+  function openModal(id){ document.getElementById(id).classList.add("open"); }
+  function closeModal(id){ document.getElementById(id).classList.remove("open"); }
+  document.querySelectorAll("[data-close]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var overlay = b.closest(".overlay");
+      overlay.classList.remove("open");
+      if (overlay.id === "overlayServicio") stopCamera();
+    });
+  });
+  document.querySelectorAll(".overlay").forEach(function(o){
+    o.addEventListener("click", function(e){ if(e.target===o){ o.classList.remove("open"); if(o.id==="overlayServicio") stopCamera(); } });
+  });
+
+  // ---- nuevo/editar servicio ----
+  function fillClienteSelect(sel, selectedKey){
+    return api("/api/clientes/buscar").then(function(lista){
+      sel.innerHTML = "";
+      var nuevo = el("option"); nuevo.value="__new__"; nuevo.textContent="➕ Crear nuevo cliente…"; sel.appendChild(nuevo);
+      lista.forEach(function(c){
+        var o = el("option"); o.value = c.tipo + ":" + c.id; o.textContent = c.nombre + (c.tipo==="empresa"?" (empresa)":"");
+        sel.appendChild(o);
+      });
+      if (selectedKey) sel.value = selectedKey;
+    });
+  }
+  document.getElementById("svcCliente").addEventListener("change", function(){
+    if (this.value === "__new__") {
+      state.clienteModalChained = true;
+      document.getElementById("cliNombre").value = "";
+      document.getElementById("cliTelefono").value = "";
+      document.getElementById("cliSsn").value = "";
+      document.getElementById("cliGiro").value = "";
+      document.getElementById("cliTipo").value = "persona";
+      document.getElementById("cliGiroWrap").style.display = "none";
+      document.getElementById("cliSsnLabel").textContent = "SSN / ITIN completo";
+      openModal("overlayCliente");
+    }
+  });
+
+  function fillTipoSelect(sel, allowed, selectedTipo){
+    sel.innerHTML = "";
+    var list = allowed ? ALL_TIPOS.filter(function(t){ return allowed.indexOf(t)>-1; }) : ALL_TIPOS;
+    if (!list.length) {
+      var o = el("option"); o.textContent = "Sin servicios configurados para ti"; o.disabled = true; sel.appendChild(o);
+      sel.disabled = true;
+      return;
+    }
+    sel.disabled = false;
+    list.forEach(function(t){ var o=el("option"); o.value=t; o.textContent=t; sel.appendChild(o); });
+    if (selectedTipo && list.indexOf(selectedTipo)>-1) sel.value = selectedTipo;
+  }
+  function renderDetalleExtra(existingDetalle){
+    var tipo = document.getElementById("svcTipo").value;
+    var conf = SERVICE_TYPES[tipo];
+    var wrap = document.getElementById("svcDetalleExtra");
+    wrap.innerHTML = "";
+    if (!conf) return;
+    wrap.appendChild(el("div","divider-lbl",'Detalle específico de "' + tipo + '" (línea: ' + conf.linea + ')'));
+    var row = el("div","field-row");
+    conf.extra.forEach(function(f, i){
+      var fw = el("div","field");
+      var label = el("label", null, f.label);
+      var input;
+      if (f.type === "select") {
+        input = el("select");
+        f.options.forEach(function(op){ var o=el("option"); o.value=op; o.textContent=op; input.appendChild(o); });
+      } else {
+        input = el("input");
+        input.type = f.type;
+      }
+      input.dataset.key = f.key;
+      if (f.key === "ssn") {
+        input.placeholder = "123-45-6789";
+        input.maxLength = 11;
+        input.addEventListener("input", function(){ this.value = maskSSN(this.value); });
+      }
+      if (existingDetalle && existingDetalle[f.key] !== undefined) input.value = existingDetalle[f.key];
+      else if (f.default) input.value = f.default;
+      fw.appendChild(label); fw.appendChild(input);
+      row.appendChild(fw);
+      if ((i+1) % 2 === 0 && i !== conf.extra.length-1) { wrap.appendChild(row); row = el("div","field-row"); }
+    });
+    wrap.appendChild(row);
+    if (conf.linea === "Contabilidad") {
+      var contasWrap = el("div");
+      contasWrap.style.cssText = "display:flex; flex-direction:column; gap:6px;";
+      if (SISTEMA_CONTAS_URL) {
+        var contasLink = el("a", "btn small primary", "↗ Abrir sistema de contas");
+        contasLink.href = SISTEMA_CONTAS_URL;
+        contasLink.target = "_blank";
+        contasLink.rel = "noopener";
+        contasLink.style.alignSelf = "flex-start";
+        contasWrap.appendChild(contasLink);
+        contasWrap.appendChild(el("p","hint","Ahí subes los PDFs de estado de cuenta — el sistema los procesa y te lleva al entregable estándar o a la categorización para el Schedule C."));
+      } else {
+        contasWrap.appendChild(el("p","hint","Falta configurar la URL del sistema de contas."));
+      }
+      wrap.appendChild(contasWrap);
+    }
+  }
+  function collectDetalle(){
+    var out = {};
+    document.querySelectorAll("#svcDetalleExtra [data-key]").forEach(function(inp){ out[inp.dataset.key] = inp.value; });
+    return out;
+  }
+
+  function renderEstatusPago(selectedValue){
+    var tipo = document.getElementById("svcTipo").value;
+    var conf = SERVICE_TYPES[tipo];
+    var opts = (conf && conf.linea === "Taxes") ? ESTATUS_PAGO_TAXES : ESTATUS_PAGO_BASE;
+    var sel = document.getElementById("svcEstatus");
+    sel.innerHTML = "";
+    opts.forEach(function(o){ var op = el("option"); op.value = o; op.textContent = o; sel.appendChild(op); });
+    sel.value = (selectedValue && opts.indexOf(selectedValue) > -1) ? selectedValue : "Pendiente de pago";
+  }
+
+  function updateComisionInfo(){
+    if (state.comisionYaPagada) return;
+    var infoEl = document.getElementById("svcComisionInfo");
+    var u = state.currentUser;
+    var trabajadorId = getAssignedTrabajadorId();
+    var tipo = document.getElementById("svcTipo").value;
+    var cobro = Number(document.getElementById("svcCobro").value) || 0;
+    if (trabajadorId === u.id) {
+      var cfg = (u.config_servicios||[]).find(function(c){ return c.tipo===tipo; });
+      infoEl.textContent = cfg ? (money(Math.round(cobro * cfg.pct / 100)) + " (" + cfg.pct + "% de " + money(cobro) + ")") : "Se calcula automático al guardar.";
+    } else {
+      infoEl.textContent = "Se calcula automático según la configuración del trabajador asignado.";
+    }
+  }
+
+  function renderTrabajadorField(existingTrabajadorId){
+    var u = state.currentUser;
+    var fixed = document.getElementById("svcTrabajadorFixed");
+    var sel = document.getElementById("svcTrabajadorSelect");
+    if (u.rol === "admin") {
+      fixed.style.display = "none";
+      sel.style.display = "";
+      sel.innerHTML = "";
+      state.workersBasico.forEach(function(w){ var o=el("option"); o.value=w.id; o.textContent=w.nombre; sel.appendChild(o); });
+      if (existingTrabajadorId) sel.value = existingTrabajadorId;
+    } else {
+      sel.style.display = "none";
+      fixed.style.display = "";
+      fixed.textContent = u.nombre + " (tú)";
+    }
+  }
+  function getAssignedTrabajadorId(){
+    var u = state.currentUser;
+    return u.rol === "admin" ? Number(document.getElementById("svcTrabajadorSelect").value) : u.id;
+  }
+  document.getElementById("svcTrabajadorSelect").addEventListener("change", updateComisionInfo);
+
+  function maskSSN(value){
+    var d = value.replace(/\D/g,"").slice(0,9);
+    if (d.length > 5) return d.slice(0,3) + "-" + d.slice(3,5) + "-" + d.slice(5);
+    if (d.length > 3) return d.slice(0,3) + "-" + d.slice(3);
+    return d;
+  }
+  function maskEIN(value){
+    var d = value.replace(/\D/g,"").slice(0,9);
+    if (d.length > 2) return d.slice(0,2) + "-" + d.slice(2);
+    return d;
+  }
+
+  function renderArchivosList(){
+    var wrap = document.getElementById("svcArchivosList");
+    wrap.innerHTML = "";
+    state.pendingArchivos.forEach(function(a, idx){
+      var chip = el("div","attach-chip");
+      chip.innerHTML = (a.tipo==="foto" ? "<span>📷</span>" : "<span>📄</span>") + "<span>"+a.nombre+"</span>";
+      var rm = el("button","rm-btn","✕"); rm.type="button"; rm.style.fontSize="12px";
+      rm.addEventListener("click", function(){
+        var after = function(){ state.pendingArchivos.splice(idx,1); renderArchivosList(); };
+        if (a.id) { api("/api/archivos/" + a.id, {method:"DELETE"}).then(after); } else { after(); }
+      });
+      chip.appendChild(rm);
+      wrap.appendChild(chip);
+    });
+  }
+  document.getElementById("svcFileInput").addEventListener("change", function(){
+    Array.prototype.forEach.call(this.files, function(f){
+      state.pendingArchivos.push({nombre:f.name, tipo:"archivo", _new:true});
+    });
+    renderArchivosList();
+    this.value = "";
+  });
+  function stopCamera(){
+    if (state.camStream) { state.camStream.getTracks().forEach(function(t){ t.stop(); }); state.camStream = null; }
+    document.getElementById("camPanel").classList.remove("open");
+    document.getElementById("camError").textContent = "";
+  }
+  document.getElementById("btnTomarFoto").addEventListener("click", function(){
+    var panel = document.getElementById("camPanel");
+    panel.classList.add("open");
+    var errBox = document.getElementById("camError");
+    errBox.textContent = "";
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      errBox.textContent = "Este navegador no expone la cámara. Usa 'Elegir archivo' para subir la foto en su lugar.";
+      return;
+    }
+    navigator.mediaDevices.getUserMedia({ video: true }).then(function(stream){
+      state.camStream = stream;
+      document.getElementById("camVideo").srcObject = stream;
+    }).catch(function(err){
+      errBox.textContent = "No se pudo acceder a la cámara (" + err.name + ").";
+    });
+  });
+  document.getElementById("btnCerrarCam").addEventListener("click", stopCamera);
+  document.getElementById("btnCapturar").addEventListener("click", function(){
+    if (!state.camStream) return;
+    state.pendingArchivos.push({nombre:"Foto - " + new Date().toLocaleTimeString() + ".jpg", tipo:"foto", _new:true});
+    renderArchivosList();
+    stopCamera();
+  });
+
+  function openServicioModal(editId, clientePreset){
+    state.editingServiceId = editId || null;
+    var u = state.currentUser;
+    var editingPromise = editId ? api("/api/servicios/" + editId) : Promise.resolve(null);
+
+    editingPromise.then(function(editing){
+      document.getElementById("svcModalTitle").textContent = editing ? "Editar servicio" : "Nuevo servicio";
+      document.getElementById("btnGuardarServicio").textContent = editing ? "Guardar cambios" : "Guardar servicio";
+      document.getElementById("btnEliminarServicio").style.display = editing ? "" : "none";
+
+      var clienteKey = editing
+        ? (editing.persona_id ? "persona:" + editing.persona_id : "empresa:" + editing.empresa_id)
+        : (clientePreset ? clientePreset.tipo + ":" + clientePreset.id : null);
+
+      Promise.all([
+        fillClienteSelect(document.getElementById("svcCliente"), clienteKey),
+        api("/api/trabajadores/basico"),
+        api("/api/catalogo/servicio-tipos")
+      ]).then(function(results){
+        state.workersBasico = results[1];
+        var tipos = results[2];
+
+        renderTrabajadorField(editing ? editing.trabajador_id : null);
+        fillTipoSelect(document.getElementById("svcTipo"), tipos, editing ? editing.tipo : null);
+        renderDetalleExtra(editing ? editing.detalle : null);
+
+        document.getElementById("svcFecha").value = editing ? editing.fecha : new Date().toISOString().slice(0,10);
+        document.getElementById("svcCobro").value = editing ? editing.cobro : "";
+        document.getElementById("svcMetodo").value = editing ? (editing.metodo_pago||"Zelle") : "Zelle";
+        renderEstatusPago(editing ? editing.estatus : null);
+        document.getElementById("svcNotas").value = editing ? (editing.notas||"") : "";
+
+        state.pendingArchivos = editing ? editing.archivos.slice() : [];
+        renderArchivosList();
+        stopCamera();
+
+        if (editing && editing.comisiones && editing.comisiones.length) {
+          var c0 = editing.comisiones[0];
+          state.comisionYaPagada = c0.estado === "pagada";
+          document.getElementById("svcComisionInfo").textContent = money(c0.monto) + " — " + (state.comisionYaPagada ? "ya pagada (no cambia aunque edites el servicio)" : "pendiente de pago");
+        } else {
+          state.comisionYaPagada = false;
+          updateComisionInfo();
+        }
+        openModal("overlayServicio");
+      });
+    }).catch(function(e){ if (e.message !== "no-auth") alert("No se pudo cargar el servicio: " + e.message); });
+  }
+  document.getElementById("svcTipo").addEventListener("change", function(){
+    renderDetalleExtra();
+    renderEstatusPago(document.getElementById("svcEstatus").value);
+    updateComisionInfo();
+  });
+  document.getElementById("svcCobro").addEventListener("input", updateComisionInfo);
+  document.getElementById("btnNuevoServicioTop").addEventListener("click", function(){ openServicioModal(null, null); });
+  document.getElementById("btnNuevoServicioProfile").addEventListener("click", function(){ openServicioModal(null, state.currentProfile); });
+
+  document.getElementById("btnGuardarServicio").addEventListener("click", function(){
+    var clienteVal = document.getElementById("svcCliente").value;
+    if (!clienteVal || clienteVal === "__new__") { alert("Selecciona un cliente."); return; }
+    var parts = clienteVal.split(":");
+    var clienteTipo = parts[0], clienteId = Number(parts[1]);
+
+    var body = {
+      tipo: document.getElementById("svcTipo").value,
+      fecha: document.getElementById("svcFecha").value || new Date().toISOString().slice(0,10),
+      cobro: Number(document.getElementById("svcCobro").value)||0,
+      metodo_pago: document.getElementById("svcMetodo").value,
+      estatus: document.getElementById("svcEstatus").value,
+      notas: document.getElementById("svcNotas").value,
+      trabajador_id: getAssignedTrabajadorId(),
+      detalle: collectDetalle()
+    };
+    body[clienteTipo + "_id"] = clienteId;
+
+    var btn = this;
+    btn.disabled = true;
+    var savePromise = state.editingServiceId
+      ? api("/api/servicios/" + state.editingServiceId, {method:"PUT", body: body}).then(function(){ return state.editingServiceId; })
+      : api("/api/servicios", {method:"POST", body: body}).then(function(r){ return r.id; });
+
+    savePromise.then(function(servicioId){
+      var nuevos = state.pendingArchivos.filter(function(a){ return a._new; });
+      var chain = Promise.resolve();
+      nuevos.forEach(function(a){
+        chain = chain.then(function(){
+          return api("/api/archivos", {method:"POST", body: {servicio_id: servicioId, nombre: a.nombre, tipo: a.tipo}});
+        });
+      });
+      return chain;
+    }).then(function(){
+      closeModal("overlayServicio");
+      stopCamera();
+      renderServiciosTable();
+      renderClientTable();
+      if (state.currentProfile && state.currentProfile.tipo === clienteTipo && state.currentProfile.id === clienteId) {
+        renderProfileServices();
+      }
+    }).catch(function(e){
+      alert("No se pudo guardar: " + e.message);
+    }).then(function(){
+      btn.disabled = false;
+    });
+  });
+  document.getElementById("btnEliminarServicio").addEventListener("click", function(){
+    if (!state.editingServiceId) return;
+    if (!confirm("¿Eliminar este servicio? Esta acción no se puede deshacer.")) return;
+    api("/api/servicios/" + state.editingServiceId, {method:"DELETE"}).then(function(){
+      closeModal("overlayServicio");
+      renderServiciosTable();
+      renderClientTable();
+      if (state.currentProfile) renderProfileServices();
+    }).catch(function(e){ alert("No se pudo eliminar: " + e.message); });
+  });
+
+  // ---- nuevo cliente ----
+  document.getElementById("btnNuevoClienteTop").addEventListener("click", function(){
+    state.clienteModalChained = false;
+    document.getElementById("cliNombre").value = "";
+    document.getElementById("cliTelefono").value = "";
+    document.getElementById("cliSsn").value = "";
+    document.getElementById("cliGiro").value = "";
+    document.getElementById("cliTipo").value = "persona";
+    document.getElementById("cliGiroWrap").style.display = "none";
+    document.getElementById("cliSsnLabel").textContent = "SSN / ITIN completo";
+    openModal("overlayCliente");
+  });
+  document.getElementById("cliTipo").addEventListener("change", function(){
+    var isEmpresa = this.value === "empresa";
+    document.getElementById("cliGiroWrap").style.display = isEmpresa ? "" : "none";
+    document.getElementById("cliSsnLabel").textContent = isEmpresa ? "EIN (opcional)" : "SSN / ITIN completo";
+    document.getElementById("cliSsn").placeholder = isEmpresa ? "12-3456789" : "123-45-6789";
+    document.getElementById("cliSsn").value = "";
+  });
+  document.getElementById("cliSsn").addEventListener("input", function(){
+    var isEmpresa = document.getElementById("cliTipo").value === "empresa";
+    this.value = isEmpresa ? maskEIN(this.value) : maskSSN(this.value);
+  });
+  document.getElementById("btnGuardarCliente").addEventListener("click", function(){
+    var nombre = document.getElementById("cliNombre").value.trim();
+    if (!nombre) { alert("Falta el nombre."); return; }
+    var tipo = document.getElementById("cliTipo").value;
+    var body = { tipo: tipo, nombre: nombre, telefono: document.getElementById("cliTelefono").value || null };
+    if (tipo === "persona") { body.ssn_full = document.getElementById("cliSsn").value || null; }
+    else { body.giro = document.getElementById("cliGiro").value || null; body.ein = document.getElementById("cliSsn").value || null; }
+
+    var btn = this;
+    btn.disabled = true;
+    api("/api/clientes", {method:"POST", body: body}).then(function(c){
+      closeModal("overlayCliente");
+      if (state.clienteModalChained) {
+        state.clienteModalChained = false;
+        return fillClienteSelect(document.getElementById("svcCliente"), c.tipo + ":" + c.id);
+      } else {
+        renderClientTable();
+        openProfile(c.tipo, c.id);
+      }
+    }).catch(function(e){
+      alert("No se pudo crear el cliente: " + e.message);
+    }).then(function(){
+      btn.disabled = false;
+    });
+  });
+
+  // ---- trabajadores ----
+  function renderWorkers(){
+    var wrap = document.getElementById("workersList");
+    wrap.innerHTML = '<p class="hint">Cargando…</p>';
+    api("/api/trabajadores").then(function(workers){
+      wrap.innerHTML = "";
+      workers.forEach(function(w){
+        var card = el("div","worker-card");
+        var chipsHtml = (w.config_servicios||[]).map(function(cfg){
+          return '<span class="config-chip">' + cfg.tipo + ' <span class="pct">' + cfg.pct + '%</span></span>';
+        }).join("");
+        card.innerHTML =
+          '<div class="worker-top"><div class="worker-name"><span class="avatar">' + initials(w.nombre) + '</span>' + w.nombre +
+          (w.rol==="admin" ? ' <span class="perm-chip on">admin</span>' : '') + '</div>' +
+          '<div style="display:flex; align-items:center; gap:10px;"><span class="hint">' + w.correo + '</span></div></div>' +
+          '<div style="margin-top:8px;">' + (chipsHtml || '<span class="hint">Sin servicios configurados</span>') + '</div>';
+        var actions = el("div"); actions.style.cssText = "margin-top:10px; display:flex; gap:8px;";
+        var editBtn = el("button","btn small","Editar"); editBtn.type="button";
+        editBtn.addEventListener("click", function(){ openTrabajadorModal(w.id, w); });
+        var delBtn = el("button","btn small","Eliminar"); delBtn.type="button"; delBtn.style.color="var(--crit)";
+        delBtn.addEventListener("click", function(){
+          if (!confirm('¿Eliminar a ' + w.nombre + '? Sus servicios y comisiones históricas se quedan, solo deja de poder loguearse.')) return;
+          api("/api/trabajadores/" + w.id, {method:"DELETE"}).then(renderWorkers);
+        });
+        actions.appendChild(editBtn); actions.appendChild(delBtn);
+        card.appendChild(actions);
+        wrap.appendChild(card);
+      });
+    });
+  }
+  function trbConfigRow(tipo, pct){
+    var r = el("div","comision-row");
+    var tSel = el("select"); ALL_TIPOS.forEach(function(t){ var o=el("option"); o.value=t; o.textContent=t; if(t===tipo) o.selected=true; tSel.appendChild(o); });
+    var pctIn = el("input"); pctIn.type="number"; pctIn.placeholder="% o $"; pctIn.value = pct!==undefined?pct:"";
+    var rm = el("button","rm-btn","✕"); rm.type="button"; rm.addEventListener("click", function(){ r.remove(); });
+    r.style.gridTemplateColumns = "1.6fr 1fr auto";
+    r.appendChild(tSel); r.appendChild(pctIn); r.appendChild(rm);
+    return r;
+  }
+  function openTrabajadorModal(editId, preloaded){
+    state.editingWorkerId = editId || null;
+    var editing = preloaded || null;
+    document.querySelector('#overlayTrabajador .modal-head h2').textContent = editing ? "Editar trabajador" : "Nuevo trabajador";
+    document.getElementById("btnGuardarTrabajador").textContent = editing ? "Guardar cambios" : "Guardar trabajador";
+    document.getElementById("trbNombre").value = editing ? editing.nombre : "";
+    document.getElementById("trbCorreo").value = editing ? editing.correo : "";
+    document.getElementById("trbHintNuevo").style.display = editing ? "none" : "";
+    var rows = document.getElementById("trbConfigRows");
+    rows.innerHTML = "";
+    if (editing && editing.config_servicios && editing.config_servicios.length) {
+      editing.config_servicios.forEach(function(c){ rows.appendChild(trbConfigRow(c.tipo, c.pct)); });
+    } else {
+      rows.appendChild(trbConfigRow("Taxes 1040", ""));
+    }
+    openModal("overlayTrabajador");
+  }
+  document.getElementById("btnNuevoTrabajador").addEventListener("click", function(){ openTrabajadorModal(null, null); });
+  document.getElementById("btnAddTrbConfig").addEventListener("click", function(){
+    document.getElementById("trbConfigRows").appendChild(trbConfigRow("Taxes 1040", ""));
+  });
+  document.getElementById("btnGuardarTrabajador").addEventListener("click", function(){
+    var nombre = document.getElementById("trbNombre").value.trim();
+    if (!nombre) { alert("Falta el nombre."); return; }
+    var correo = document.getElementById("trbCorreo").value.trim();
+    if (!correo) { alert("Falta el correo — es lo que usa para iniciar sesión."); return; }
+    var config = [];
+    document.querySelectorAll("#trbConfigRows .comision-row").forEach(function(r){
+      var sels = r.querySelectorAll("select, input");
+      config.push({tipo: sels[0].value, pct: Number(sels[1].value)||0});
+    });
+    var body = { nombre: nombre, correo: correo, rol: "trabajador", config_servicios: config };
+    var btn = this;
+    btn.disabled = true;
+    var savePromise = state.editingWorkerId
+      ? api("/api/trabajadores/" + state.editingWorkerId, {method:"PUT", body: body})
+      : api("/api/trabajadores", {method:"POST", body: body});
+    savePromise.then(function(){
+      closeModal("overlayTrabajador");
+      renderWorkers();
+    }).catch(function(e){
+      alert("No se pudo guardar: " + e.message);
+    }).then(function(){
+      btn.disabled = false;
+    });
+  });
+
+  // ---------- nómina ----------
+  function renderNomina(){
+    Promise.all([api("/api/nomina/pendientes"), api("/api/nomina/historial")]).then(function(results){
+      var pendientes = results[0], historial = results[1];
+      var totalPendiente = pendientes.reduce(function(a,p){ return a+p.monto; }, 0);
+      var totalPagadoHistorico = historial.reduce(function(a,p){ return a+p.monto; }, 0);
+      var totalServiciosPendientes = pendientes.reduce(function(a,p){ return a+p.n_servicios; }, 0);
+
+      document.getElementById("nominaResumen").innerHTML =
+        '<div class="stat-tile"><div class="lbl">Pendiente total</div><div class="val">'+money(totalPendiente)+'</div><div class="sub">'+pendientes.length+' trabajadores</div></div>' +
+        '<div class="stat-tile"><div class="lbl">Pagado histórico</div><div class="val">'+money(totalPagadoHistorico)+'</div><div class="sub">todas las líneas</div></div>' +
+        '<div class="stat-tile"><div class="lbl">Pagos registrados</div><div class="val">'+historial.length+'</div><div class="sub">corridas de nómina</div></div>' +
+        '<div class="stat-tile"><div class="lbl">Servicios sin cerrar comisión</div><div class="val">'+totalServiciosPendientes+'</div><div class="sub">todas las líneas</div></div>';
+
+      var wrap = document.getElementById("nominaPendientes");
+      wrap.innerHTML = "";
+      if (!pendientes.length) { wrap.innerHTML = '<p class="hint">No hay comisiones pendientes de pago.</p>'; }
+      pendientes.sort(function(a,b){ return b.monto - a.monto; }).forEach(function(p){
+        var row = el("div","payee-row");
+        row.innerHTML =
+          '<div class="payee-left"><span class="avatar">'+initials(p.trabajador)+'</span><div><div style="font-weight:700;">'+p.trabajador+'</div><div class="payee-sub">'+p.n_servicios+' servicio(s) sin pagar</div></div></div>' +
+          '<div style="display:flex; align-items:center; gap:12px;"><span class="payee-amt">'+money(p.monto)+'</span></div>';
+        var btn = el("button","btn small ok","Marcar como pagado");
+        row.lastElementChild.appendChild(btn);
+        btn.addEventListener("click", function(){
+          btn.disabled = true;
+          api("/api/nomina/pagar", {method:"POST", body: {trabajador_id: p.trabajador_id}}).then(function(){
+            renderNomina();
+          }).catch(function(e){
+            alert("No se pudo marcar como pagado: " + e.message);
+            btn.disabled = false;
+          });
+        });
+        wrap.appendChild(row);
+      });
+
+      var hist = document.getElementById("nominaHistorial");
+      hist.innerHTML = "";
+      historial.forEach(function(p){
+        var tr = el("tr");
+        tr.innerHTML = '<td>'+p.fecha+'</td><td>'+p.trabajador+'</td><td class="num">'+p.n_servicios+'</td><td class="num">'+money(p.monto)+'</td>';
+        hist.appendChild(tr);
+      });
+    });
+  }
+
+  // ---------- stats / periodos ----------
+  function renderStatsPeriodoControl(){
+    return api("/api/periodos/detectados").then(function(periods){
+      if (periods.indexOf(state.statsPeriodo) === -1) state.statsPeriodo = "Todo";
+      var wrap = document.getElementById("statsPeriodo");
+      wrap.innerHTML = "";
+      periods.forEach(function(p){
+        var b = el("button", p===state.statsPeriodo ? "active" : "", p);
+        b.type = "button";
+        b.addEventListener("click", function(){ state.statsPeriodo = p; renderStats(); });
+        wrap.appendChild(b);
+      });
+    });
+  }
+  document.getElementById("btnNuevaTemporada").addEventListener("click", function(){
+    document.getElementById("tmpNombre").value = "";
+    document.getElementById("tmpDesde").value = "";
+    document.getElementById("tmpHasta").value = "";
+    openModal("overlayTemporada");
+  });
+  document.getElementById("btnGuardarTemporada").addEventListener("click", function(){
+    var nombre = document.getElementById("tmpNombre").value.trim();
+    var desde = document.getElementById("tmpDesde").value;
+    var hasta = document.getElementById("tmpHasta").value;
+    if (!nombre || !desde || !hasta) { alert("Completa nombre, desde y hasta."); return; }
+    api("/api/periodos", {method:"POST", body: {nombre: nombre, desde: desde, hasta: hasta}}).then(function(){
+      state.statsPeriodo = nombre;
+      closeModal("overlayTemporada");
+      renderStats();
+    }).catch(function(e){ alert("No se pudo crear la temporada: " + e.message); });
+  });
+  function renderStats(){
+    renderStatsPeriodoControl().then(function(){
+      return api("/api/estadisticas?periodo=" + encodeURIComponent(state.statsPeriodo));
+    }).then(function(data){
+      document.getElementById("statsResumen").innerHTML =
+        '<div class="stat-tile"><div class="lbl">Ingresos</div><div class="val">'+money(data.ingresos)+'</div><div class="sub">'+data.periodo+'</div></div>' +
+        '<div class="stat-tile"><div class="lbl">Comisiones pendientes</div><div class="val">'+money(data.comisiones_pendientes)+'</div><div class="sub">en este periodo</div></div>' +
+        '<div class="stat-tile"><div class="lbl">Clientes atendidos</div><div class="val">'+data.clientes_atendidos+'</div><div class="sub">en este periodo</div></div>' +
+        '<div class="stat-tile"><div class="lbl">Servicios</div><div class="val">'+data.servicios+'</div><div class="sub">todas las líneas</div></div>';
+
+      var porLinea = data.por_linea;
+      var maxLinea = Math.max.apply(null, Object.keys(porLinea).map(function(k){return porLinea[k];}).concat([1]));
+      var barLineas = document.getElementById("barLineas");
+      barLineas.innerHTML = Object.keys(porLinea).length ? "" : '<p class="hint">Sin servicios en este periodo.</p>';
+      Object.keys(porLinea).sort(function(a,b){return porLinea[b]-porLinea[a];}).forEach(function(l){
+        var r = el("div","bar-row");
+        r.innerHTML = '<span class="bname">'+l+'</span><div class="bar-track"><div class="bar-fill" style="width:'+(100*porLinea[l]/maxLinea)+'%"></div></div><span class="bval">'+money(porLinea[l])+'</span>';
+        barLineas.appendChild(r);
+      });
+
+      var porTrb = data.por_trabajador;
+      var maxTrb = Math.max.apply(null, Object.keys(porTrb).map(function(k){return porTrb[k];}).concat([1]));
+      var barTrb = document.getElementById("barTrabajadores");
+      barTrb.innerHTML = Object.keys(porTrb).length ? "" : '<p class="hint">Sin comisiones pendientes en este periodo.</p>';
+      Object.keys(porTrb).sort(function(a,b){return porTrb[b]-porTrb[a];}).forEach(function(t){
+        var r = el("div","bar-row");
+        r.innerHTML = '<span class="bname">'+t+'</span><div class="bar-track"><div class="bar-fill" style="width:'+(100*porTrb[t]/maxTrb)+'%"></div></div><span class="bval">'+money(porTrb[t])+'</span>';
+        barTrb.appendChild(r);
+      });
+    });
+  }
+
+  // ---------- init ----------
+  document.getElementById("btnLogout").addEventListener("click", function(){
+    api("/auth/logout", {method:"POST"}).then(function(){ location.reload(); });
+  });
+
+  api("/auth/me").then(function(u){
+    state.currentUser = u;
+    document.getElementById("loginGate").style.display = "none";
+    document.getElementById("appRoot").style.display = "grid";
+    applyPermissions();
+  }).catch(function(){ showLoginGate(); });
+})();
+</script>
