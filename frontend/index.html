@@ -397,10 +397,14 @@
 </style>
 
 <div id="loginGate" style="display:flex; position:fixed; inset:0; background:var(--bg); align-items:center; justify-content:center; z-index:100; flex-direction:column; gap:16px;">
-  <div style="text-align:center; padding:0 20px;">
-    <div style="font-weight:700; font-size:20px; margin-bottom:6px;">Solutions · Plataforma Madre</div>
-    <p class="page-sub" style="margin:0 auto 20px; max-width:40ch;">Inicia sesión con tu cuenta de Google para entrar.</p>
-    <a href="/auth/login" class="btn primary" style="padding:10px 20px;">Iniciar sesión con Google</a>
+  <div style="text-align:center; padding:0 20px; width:100%; max-width:320px;">
+    <div style="font-weight:700; font-size:20px; margin-bottom:18px;">Solutions · Plataforma Madre</div>
+    <form id="loginForm" style="display:flex; flex-direction:column; gap:12px; text-align:left;">
+      <div class="field"><label>Correo</label><input type="email" id="loginCorreo" autocomplete="username" required></div>
+      <div class="field"><label>Contraseña</label><input type="password" id="loginPassword" autocomplete="current-password" required></div>
+      <p class="hint" id="loginError" style="color:var(--crit); min-height:14px;"></p>
+      <button class="btn primary" type="submit" style="padding:10px 20px; justify-content:center;">Entrar</button>
+    </form>
   </div>
 </div>
 
@@ -694,7 +698,11 @@
         <div class="field"><label>Nombre</label><input id="trbNombre" placeholder="Nombre del trabajador"></div>
         <div class="field"><label>Correo (con el que inicia sesión)</label><input id="trbCorreo" placeholder="nombre@dominio.com"></div>
       </div>
-      <p class="hint" id="trbHintNuevo">Todo trabajador nuevo ve solo Clientes y los servicios que le configures abajo — Nómina, Trabajadores y Estadísticas son exclusivos del Admin. El correo debe ser el mismo con el que inicia sesión con Google.</p>
+      <div class="field">
+        <label id="trbPasswordLabel">Contraseña</label>
+        <input id="trbPassword" type="text" autocomplete="new-password">
+      </div>
+      <p class="hint" id="trbHintNuevo">Todo trabajador nuevo ve solo Clientes y los servicios que le configures abajo — Nómina, Trabajadores y Estadísticas son exclusivos del Admin. El correo y la contraseña son con lo que inicia sesión.</p>
       <div class="divider-lbl">Servicios que da y % / monto por defecto</div>
       <div id="trbConfigRows"></div>
       <button class="btn small" id="btnAddTrbConfig" type="button">+ agregar servicio</button>
@@ -1513,6 +1521,9 @@
     document.getElementById("btnGuardarTrabajador").textContent = editing ? "Guardar cambios" : "Guardar trabajador";
     document.getElementById("trbNombre").value = editing ? editing.nombre : "";
     document.getElementById("trbCorreo").value = editing ? editing.correo : "";
+    document.getElementById("trbPassword").value = "";
+    document.getElementById("trbPasswordLabel").textContent = editing ? "Contraseña nueva (déjala vacía para no cambiarla)" : "Contraseña";
+    document.getElementById("trbPassword").placeholder = editing ? "Déjala vacía para no cambiarla" : "Obligatoria — la necesita para poder entrar";
     document.getElementById("trbHintNuevo").style.display = editing ? "none" : "";
     var rows = document.getElementById("trbConfigRows");
     rows.innerHTML = "";
@@ -1537,7 +1548,9 @@
       var sels = r.querySelectorAll("select, input");
       config.push({tipo: sels[0].value, pct: Number(sels[1].value)||0});
     });
-    var body = { nombre: nombre, correo: correo, rol: "trabajador", config_servicios: config };
+    var password = document.getElementById("trbPassword").value;
+    if (!state.editingWorkerId && !password) { alert("Falta la contraseña — la necesita para poder entrar."); return; }
+    var body = { nombre: nombre, correo: correo, rol: "trabajador", config_servicios: config, password: password || null };
     var btn = this;
     btn.disabled = true;
     var savePromise = state.editingWorkerId
@@ -1665,6 +1678,23 @@
   // ---------- init ----------
   document.getElementById("btnLogout").addEventListener("click", function(){
     api("/auth/logout", {method:"POST"}).then(function(){ location.reload(); });
+  });
+
+  document.getElementById("loginForm").addEventListener("submit", function(e){
+    e.preventDefault();
+    var errEl = document.getElementById("loginError");
+    errEl.textContent = "";
+    var btn = e.target.querySelector("button[type=submit]");
+    btn.disabled = true;
+    api("/auth/login-password", {method:"POST", body: {
+      correo: document.getElementById("loginCorreo").value.trim(),
+      password: document.getElementById("loginPassword").value
+    }}).then(function(){
+      location.reload();
+    }).catch(function(err){
+      errEl.textContent = err.message || "No se pudo iniciar sesión.";
+      btn.disabled = false;
+    });
   });
 
   api("/auth/me").then(function(u){

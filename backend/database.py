@@ -1,6 +1,7 @@
 import os
 from typing import Optional
 
+import bcrypt
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
@@ -52,6 +53,16 @@ def decrypt_ssn(ssn_encrypted: Optional[str]) -> Optional[str]:
     if not ssn_encrypted:
         return None
     return _get_fernet().decrypt(ssn_encrypted.encode()).decode()
+
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_password(password: str, password_hash: Optional[str]) -> bool:
+    if not password_hash:
+        return False
+    return bcrypt.checkpw(password.encode(), password_hash.encode())
 
 
 # Nota de diseño: ssn_last4 se guarda como columna plana aparte (no cifrada) en el

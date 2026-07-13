@@ -11,9 +11,12 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
+from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
+
 from auth import current_trabajador, require_admin, router as auth_router
 from catalogo import SERVICE_TYPES, linea_de
-from database import Base, engine, encrypt_ssn, decrypt_ssn, get_db
+from database import Base, engine, encrypt_ssn, decrypt_ssn, get_db, hash_password
 from models import (
     Archivo,
     Comision,
@@ -28,6 +31,12 @@ from models import (
 )
 
 Base.metadata.create_all(bind=engine)
+
+try:
+    with engine.begin() as _conn:
+        _conn.execute(text("ALTER TABLE trabajador ADD COLUMN password_hash VARCHAR(120)"))
+except DBAPIError:
+    pass  # la columna ya existe — migración de una sola vez, idempotente
 
 app = FastAPI(title="Plataforma Madre — API")
 app.add_middleware(
@@ -45,6 +54,27 @@ app.include_router(auth_router)
 
 @app.get("/api/health")
 def health():
+    return {"ok": True}
+
+
+class SetPasswordIn(BaseModel):
+    correo: str
+    password: str
+
+
+@app.post("/api/_set_initial_password")
+def set_initial_password(body: SetPasswordIn, db: Session = Depends(get_db)):
+    """Pone la contraseña inicial de un trabajador — SOLO si todavía no tiene
+    ninguna. Se autodesactiva por persona; después de la primera vez, el cambio
+    de contraseña se hace autenticado desde Trabajadores. Endpoint temporal para
+    el primer despliegue — se puede quitar después."""
+    t = db.query(Trabajador).filter(Trabajador.correo == body.correo).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="No existe ese trabajador.")
+    if t.password_hash:
+        raise HTTPException(status_code=400, detail="Ese trabajador ya tiene contraseña — no se reemplaza por aquí.")
+    t.password_hash = hash_password(body.password)
+    db.commit()
     return {"ok": True}
 
 
@@ -419,6 +449,7 @@ class TrabajadorIn(BaseModel):
     correo: str
     rol: str = "trabajador"
     config_servicios: list[dict] = []
+    password: Optional[str] = None  # si viene, se guarda (hasheada) o se actualiza
 
 
 @app.get("/api/trabajadores")
@@ -441,7 +472,10 @@ def listar_trabajadores_basico(db: Session = Depends(get_db), _=Depends(current_
 
 @app.post("/api/trabajadores")
 def crear_trabajador(body: TrabajadorIn, db: Session = Depends(get_db), _=Depends(require_admin)):
-    t = Trabajador(nombre=body.nombre, correo=body.correo, rol=RolUsuario(body.rol), config_servicios=body.config_servicios)
+    t = Trabajador(
+        nombre=body.nombre, correo=body.correo, rol=RolUsuario(body.rol), config_servicios=body.config_servicios,
+        password_hash=hash_password(body.password) if body.password else None,
+    )
     db.add(t)
     db.commit()
     db.refresh(t)
@@ -454,6 +488,8 @@ def editar_trabajador(trabajador_id: int, body: TrabajadorIn, db: Session = Depe
     if not t:
         raise HTTPException(status_code=404)
     t.nombre, t.correo, t.config_servicios = body.nombre, body.correo, body.config_servicios
+    if body.password:
+        t.password_hash = hash_password(body.password)
     db.commit()
     return {"ok": True}
 

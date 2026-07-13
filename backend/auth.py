@@ -13,9 +13,10 @@ import os
 from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from database import get_db
+from database import get_db, verify_password
 from models import Trabajador
 
 router = APIRouter()
@@ -74,6 +75,20 @@ async def auth_callback(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=403, detail="Este correo no está dado de alta como trabajador.")
     request.session["correo"] = trabajador.correo
     return RedirectResponse(url="/")
+
+
+class LoginIn(BaseModel):
+    correo: str
+    password: str
+
+
+@router.post("/auth/login-password")
+async def login_password(request: Request, body: LoginIn, db: Session = Depends(get_db)):
+    trabajador = db.query(Trabajador).filter(Trabajador.correo == body.correo, Trabajador.activo).first()
+    if not trabajador or not verify_password(body.password, trabajador.password_hash):
+        raise HTTPException(status_code=401, detail="Correo o contraseña incorrectos.")
+    request.session["correo"] = trabajador.correo
+    return {"ok": True, "trabajador": trabajador.nombre, "rol": trabajador.rol.value}
 
 
 @router.post("/auth/dev-login")

@@ -110,6 +110,7 @@ class Trabajador(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     nombre: Mapped[str] = mapped_column(String(120))
     correo: Mapped[str] = mapped_column(String(200), unique=True)
+    password_hash: Mapped[Optional[str]] = mapped_column(String(120))
     rol: Mapped[RolUsuario] = mapped_column(Enum(RolUsuario), default=RolUsuario.trabajador)
     # config: [{"tipo": "Taxes 1040", "pct": 47}, ...] — default sugerido, no regla forzada
     config_servicios: Mapped[list] = mapped_column(JSON, default=list)
