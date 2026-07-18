@@ -21,6 +21,7 @@ from models import (
     Archivo,
     Comision,
     Empresa,
+    EmpresaDueno,
     EstadoComision,
     PagoNomina,
     PeriodoCustom,
