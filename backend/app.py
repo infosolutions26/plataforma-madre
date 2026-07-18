@@ -94,6 +94,124 @@ def bootstrap_admins(db: Session = Depends(get_db)):
     return {"ok": True, "sembrado": 3}
 
 
+# ---------- import histórico (admin, un solo uso) ----------
+
+class ImportPersonaIn(BaseModel):
+    temp_id: str
+    nombre: str
+    telefono: Optional[str] = None
+    ssn_full: Optional[str] = None
+
+
+class ImportEmpresaIn(BaseModel):
+    temp_id: str
+    nombre: str
+    ein: Optional[str] = None
+    giro: Optional[str] = None
+    tipo: Optional[str] = None
+    telefono: Optional[str] = None
+    correo: Optional[str] = None
+    actividad: Optional[str] = "Activa"
+    estado_registro: Optional[str] = None
+
+
+class ImportEmpresaDuenoIn(BaseModel):
+    persona_temp_id: str
+    empresa_temp_id: str
+    rol: str = "Dueño"
+
+
+class ImportEntidadesIn(BaseModel):
+    personas: list[ImportPersonaIn] = []
+    empresas: list[ImportEmpresaIn] = []
+    empresa_duenos: list[ImportEmpresaDuenoIn] = []
+
+
+@app.post("/api/_import_entidades")
+def import_entidades(body: ImportEntidadesIn, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Primer paso del import histórico: crea personas/empresas/dueños y regresa
+    el mapeo temp_id -> id real, para poder mandar los servicios después ya con
+    ids reales. Endpoint temporal — se puede quitar cuando termine el import."""
+    persona_ids, empresa_ids = {}, {}
+    for p in body.personas:
+        obj = Persona(
+            nombre=p.nombre, telefono=p.telefono,
+            ssn_encrypted=encrypt_ssn(p.ssn_full) if p.ssn_full else None,
+            ssn_last4=p.ssn_full[-4:] if p.ssn_full else None,
+        )
+        db.add(obj)
+        db.flush()
+        persona_ids[p.temp_id] = obj.id
+    for e in body.empresas:
+        obj = Empresa(
+            nombre=e.nombre, ein=e.ein, giro=e.giro, tipo=e.tipo, telefono=e.telefono,
+            correo=e.correo, actividad=e.actividad or "Activa", estado_registro=e.estado_registro,
+        )
+        db.add(obj)
+        db.flush()
+        empresa_ids[e.temp_id] = obj.id
+    n_duenos = 0
+    for ed in body.empresa_duenos:
+        pid, eid = persona_ids.get(ed.persona_temp_id), empresa_ids.get(ed.empresa_temp_id)
+        if pid and eid:
+            db.add(EmpresaDueno(persona_id=pid, empresa_id=eid, rol=ed.rol))
+            n_duenos += 1
+    db.commit()
+    return {"ok": True, "persona_ids": persona_ids, "empresa_ids": empresa_ids, "empresa_duenos": n_duenos}
+
+
+class ImportComisionIn(BaseModel):
+    trabajador_id: int
+    rol: str = "Responsable"
+    monto: float = 0
+    estado: str = "pendiente"
+    fecha_pago: Optional[date] = None
+
+
+class ImportServicioIn(BaseModel):
+    persona_id: Optional[int] = None
+    empresa_id: Optional[int] = None
+    tipo: str
+    fecha: date
+    trabajador_id: int
+    cobro: float = 0
+    metodo_pago: Optional[str] = None
+    estatus: str
+    notas: Optional[str] = None
+    detalle: dict = {}
+    comisiones: list[ImportComisionIn] = []
+
+
+class ImportServiciosIn(BaseModel):
+    servicios: list[ImportServicioIn]
+
+
+@app.post("/api/_import_servicios")
+def import_servicios(body: ImportServiciosIn, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Segundo paso: recibe servicios con persona_id/empresa_id/trabajador_id ya
+    reales (resueltos por el llamador) y los crea en lote. Pensado para llamarse
+    varias veces con lotes chicos. Endpoint temporal — se puede quitar después."""
+    n = 0
+    for s in body.servicios:
+        if not s.persona_id and not s.empresa_id:
+            continue
+        obj = Servicio(
+            persona_id=s.persona_id, empresa_id=s.empresa_id, tipo=s.tipo, fecha=s.fecha,
+            trabajador_id=s.trabajador_id, cobro=s.cobro, metodo_pago=s.metodo_pago,
+            estatus=s.estatus, notas=s.notas, detalle=s.detalle,
+        )
+        db.add(obj)
+        db.flush()
+        for c in s.comisiones:
+            db.add(Comision(
+                servicio_id=obj.id, trabajador_id=c.trabajador_id, rol=c.rol, monto=c.monto,
+                estado=EstadoComision(c.estado), fecha_pago=c.fecha_pago,
+            ))
+        n += 1
+    db.commit()
+    return {"ok": True, "servicios": n}
+
+
 # ---------- clientes ----------
 
 class ClienteIn(BaseModel):
