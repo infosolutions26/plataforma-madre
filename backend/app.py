@@ -250,6 +250,51 @@ def normalizar_metodo_tipocita(db: Session = Depends(get_db), _=Depends(require_
     return {"ok": True, "metodo_pago_corregidos": n_metodo, "tipo_cita_corregidos": n_cita}
 
 
+class DriveMatchIn(BaseModel):
+    nombre: str
+    ssn: Optional[str] = None
+    drive_url: str
+    title_original: str
+
+
+class DriveMatchBatchIn(BaseModel):
+    items: list[DriveMatchIn]
+
+
+@app.post("/api/_asociar_archivos_drive")
+def asociar_archivos_drive(body: DriveMatchBatchIn, db: Session = Depends(get_db), trabajador: Trabajador = Depends(require_admin)):
+    """Empareja carpetas de Google Drive (nombre + SSN) contra personas ya
+    existentes y crea un Archivo por cada match confirmado. Match primero por
+    SSN completo (descifrado, no solo últimos 4); si no hay SSN, respaldo por
+    nombre exacto. No crea nada si hay más de un candidato — lo reporta como
+    ambiguo para revisión manual. Endpoint temporal, se puede quitar después."""
+    asociados, ambiguos, sin_match = [], [], []
+    for item in body.items:
+        candidatos = []
+        if item.ssn:
+            last4 = item.ssn[-4:]
+            posibles = db.query(Persona).filter(Persona.ssn_last4 == last4).all()
+            for p in posibles:
+                if p.ssn_encrypted and decrypt_ssn(p.ssn_encrypted) == item.ssn:
+                    candidatos.append(p)
+        if not candidatos:
+            nombre_norm = item.nombre.strip().lower()
+            candidatos = db.query(Persona).filter(func.lower(Persona.nombre) == nombre_norm).all()
+        if len(candidatos) == 1:
+            p = candidatos[0]
+            db.add(Archivo(
+                persona_id=p.id, nombre=item.title_original, tipo="archivo",
+                drive_url=item.drive_url, subido_por_id=trabajador.id,
+            ))
+            asociados.append({"persona_id": p.id, "persona_nombre": p.nombre, "drive_title": item.title_original})
+        elif len(candidatos) > 1:
+            ambiguos.append({"drive_title": item.title_original, "candidatos": [{"id": c.id, "nombre": c.nombre} for c in candidatos]})
+        else:
+            sin_match.append({"drive_title": item.title_original})
+    db.commit()
+    return {"asociados": asociados, "ambiguos": ambiguos, "sin_match": sin_match}
+
+
 # ---------- clientes ----------
 
 class ClienteIn(BaseModel):
