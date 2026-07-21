@@ -520,6 +520,15 @@
                 </table>
               </div>
             </div>
+            <div class="panel">
+              <h2>Notas</h2>
+              <p class="hint" style="margin:-6px 0 10px;">Cada nota queda por separado, como una actualización — no se sobrescriben.</p>
+              <div id="profNotas"></div>
+              <div style="display:flex; gap:8px; margin-top:10px; align-items:flex-start;">
+                <textarea id="profNotaNueva" rows="2" placeholder="Escribe una actualización…" style="flex:1; padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:var(--surface-3); color:var(--ink); outline:none;"></textarea>
+                <button class="btn small primary" id="btnAgregarNota" type="button">+ Agregar</button>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -626,7 +635,11 @@
       <div class="divider-lbl">Núcleo (común a todas las líneas)</div>
       <div class="field-row3">
         <div class="field"><label>Cobro</label><input type="number" id="svcCobro" placeholder="0"></div>
-        <div class="field"><label>Método de pago</label><select id="svcMetodo"><option>Zelle</option><option>Cash</option><option>Card</option><option>Banco</option></select></div>
+        <div class="field"><label>Método de pago</label><select id="svcMetodo">
+          <option>Zelle</option><option>Cash</option><option>Card</option>
+          <option>Card - Square</option><option>Card - Chase</option><option>Card - Solutions</option>
+          <option>Banco</option><option>Banco Sta Barbara</option><option>Cortesía / Referidos</option>
+        </select></div>
         <div class="field"><label>Estatus de pago</label><select id="svcEstatus"></select></div>
       </div>
       <p class="hint">Es el estatus de cobro. El progreso del trámite (para Taxes) se actualiza en "Status taxes" arriba.</p>
@@ -1005,6 +1018,7 @@
       renderProfFiles();
       stopCameraProfile();
       renderProfileServices();
+      renderProfNotas();
       showView("perfil");
     }).catch(function(e){ if (e.message !== "no-auth") alert("No se pudo cargar el cliente: " + e.message); });
   }
@@ -1093,6 +1107,38 @@
     });
   }
   document.getElementById("btnBackToList").addEventListener("click", function(){ showView("buscador"); });
+
+  function renderProfNotas(){
+    var wrap = document.getElementById("profNotas");
+    wrap.innerHTML = '<p class="hint">Cargando…</p>';
+    api("/api/clientes/" + state.currentProfile.tipo + "/" + state.currentProfile.id + "/notas").then(function(notas){
+      wrap.innerHTML = "";
+      if (!notas.length) { wrap.innerHTML = '<p class="hint">Sin notas todavía.</p>'; return; }
+      notas.forEach(function(n){
+        var d = el("div");
+        d.style.cssText = "padding:10px 0; border-bottom:1px dashed var(--line);";
+        var texto = el("div"); texto.style.cssText = "font-size:13px; white-space:pre-wrap;"; texto.textContent = n.texto;
+        var fecha = new Date(n.creado_en).toLocaleString("es-MX", {dateStyle:"medium", timeStyle:"short"});
+        var meta = el("div","hint",""); meta.style.marginTop = "4px";
+        meta.textContent = n.trabajador + " · " + fecha;
+        var rm = el("button","rm-btn","✕"); rm.type="button"; rm.style.cssText="float:right; font-size:12px;";
+        rm.addEventListener("click", function(){ api("/api/notas/" + n.id, {method:"DELETE"}).then(renderProfNotas); });
+        d.appendChild(rm); d.appendChild(texto); d.appendChild(meta);
+        wrap.appendChild(d);
+      });
+    });
+  }
+  document.getElementById("btnAgregarNota").addEventListener("click", function(){
+    var input = document.getElementById("profNotaNueva");
+    var texto = input.value.trim();
+    if (!texto) return;
+    var body = { texto: texto };
+    body[state.currentProfile.tipo + "_id"] = state.currentProfile.id;
+    api("/api/notas", {method:"POST", body: body}).then(function(){
+      input.value = "";
+      renderProfNotas();
+    });
+  });
 
   // ---------- modals ----------
   function openModal(id){ document.getElementById(id).classList.add("open"); }

@@ -23,6 +23,7 @@ from models import (
     Empresa,
     EmpresaDueno,
     EstadoComision,
+    NotaCliente,
     PagoNomina,
     PeriodoCustom,
     Persona,
@@ -213,6 +214,42 @@ def import_servicios(body: ImportServiciosIn, db: Session = Depends(get_db), _=D
     return {"ok": True, "servicios": n}
 
 
+METODO_PAGO_NORMALIZA = {
+    "zelle": "Zelle", "cash": "Cash", "card": "Card",
+    "card - square": "Card - Square", "card - chase": "Card - Chase", "card - solutions": "Card - Solutions",
+    "banco": "Banco", "banco sta barbara": "Banco Sta Barbara",
+    "cortesia / referidos": "Cortesía / Referidos", "cortesia/referidos": "Cortesía / Referidos",
+    "cortesia": "Cortesía / Referidos",
+}
+TIPO_CITA_NORMALIZA = {
+    "presencial": "Presencial", "virtual": "Virtual", "llamada / mensaje": "Llamada / mensaje",
+}
+
+
+@app.post("/api/_normalizar_metodo_tipocita")
+def normalizar_metodo_tipocita(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Corrige mayúsculas/minúsculas de metodo_pago y detalle.tipoCita en los
+    servicios ya importados, para que coincidan con las opciones del selector y
+    se vean en la interfaz. Idempotente — se puede correr más de una vez sin
+    riesgo. Endpoint temporal, se puede quitar después."""
+    n_metodo, n_cita = 0, 0
+    for s in db.query(Servicio).all():
+        if s.metodo_pago:
+            key = s.metodo_pago.strip().lower()
+            nuevo = METODO_PAGO_NORMALIZA.get(key)
+            if nuevo and nuevo != s.metodo_pago:
+                s.metodo_pago = nuevo
+                n_metodo += 1
+        if s.detalle and s.detalle.get("tipoCita"):
+            key = s.detalle["tipoCita"].strip().lower()
+            nuevo = TIPO_CITA_NORMALIZA.get(key)
+            if nuevo and nuevo != s.detalle["tipoCita"]:
+                s.detalle = {**s.detalle, "tipoCita": nuevo}
+                n_cita += 1
+    db.commit()
+    return {"ok": True, "metodo_pago_corregidos": n_metodo, "tipo_cita_corregidos": n_cita}
+
+
 # ---------- clientes ----------
 
 class ClienteIn(BaseModel):
@@ -388,6 +425,43 @@ def eliminar_archivo(archivo_id: int, db: Session = Depends(get_db), _=Depends(c
     if not a:
         raise HTTPException(status_code=404)
     db.delete(a)
+    db.commit()
+    return {"ok": True}
+
+
+@app.get("/api/clientes/{tipo}/{cliente_id}/notas")
+def listar_notas_cliente(tipo: str, cliente_id: int, db: Session = Depends(get_db), _=Depends(current_trabajador)):
+    col = NotaCliente.persona_id if tipo == "persona" else NotaCliente.empresa_id
+    notas = db.query(NotaCliente).filter(col == cliente_id).order_by(NotaCliente.creado_en.desc()).all()
+    return [
+        {"id": n.id, "texto": n.texto, "trabajador": n.trabajador.nombre, "creado_en": n.creado_en}
+        for n in notas
+    ]
+
+
+class NotaClienteIn(BaseModel):
+    persona_id: Optional[int] = None
+    empresa_id: Optional[int] = None
+    texto: str
+
+
+@app.post("/api/notas")
+def crear_nota(body: NotaClienteIn, db: Session = Depends(get_db), trabajador: Trabajador = Depends(current_trabajador)):
+    if not body.persona_id and not body.empresa_id:
+        raise HTTPException(status_code=400, detail="Falta cliente (persona_id o empresa_id).")
+    n = NotaCliente(persona_id=body.persona_id, empresa_id=body.empresa_id, texto=body.texto, trabajador_id=trabajador.id)
+    db.add(n)
+    db.commit()
+    db.refresh(n)
+    return {"id": n.id}
+
+
+@app.delete("/api/notas/{nota_id}")
+def eliminar_nota(nota_id: int, db: Session = Depends(get_db), _=Depends(current_trabajador)):
+    n = db.get(NotaCliente, nota_id)
+    if not n:
+        raise HTTPException(status_code=404)
+    db.delete(n)
     db.commit()
     return {"ok": True}
 

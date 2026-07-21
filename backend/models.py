@@ -202,3 +202,19 @@ class Archivo(Base):
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     servicio: Mapped[Optional[Servicio]] = relationship(back_populates="archivos")
+
+
+class NotaCliente(Base):
+    """Bloques de nota independientes en el perfil de un cliente — un renglón
+    por actualización, no un solo campo que se sobrescribe."""
+
+    __tablename__ = "nota_cliente"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    persona_id: Mapped[Optional[int]] = mapped_column(ForeignKey("persona.id"))
+    empresa_id: Mapped[Optional[int]] = mapped_column(ForeignKey("empresa.id"))
+    texto: Mapped[str] = mapped_column(Text)
+    trabajador_id: Mapped[int] = mapped_column(ForeignKey("trabajador.id"))
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    trabajador: Mapped[Trabajador] = relationship()
