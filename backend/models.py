@@ -41,6 +41,17 @@ class EstadoComision(str, enum.Enum):
     pagada = "pagada"
 
 
+class TipoPago(str, enum.Enum):
+    comision = "comision"
+    sueldo = "sueldo"
+    mixto = "mixto"
+
+
+class TipoPagoNomina(str, enum.Enum):
+    pago = "pago"
+    ajuste_inicial = "ajuste_inicial"
+
+
 class Persona(Base):
     __tablename__ = "persona"
 
@@ -114,6 +125,9 @@ class Trabajador(Base):
     rol: Mapped[RolUsuario] = mapped_column(Enum(RolUsuario), default=RolUsuario.trabajador)
     # config: [{"tipo": "Taxes 1040", "pct": 47}, ...] — default sugerido, no regla forzada
     config_servicios: Mapped[list] = mapped_column(JSON, default=list)
+    tipo_pago: Mapped[str] = mapped_column(String(20), default=TipoPago.comision.value)
+    sueldo_fijo: Mapped[float] = mapped_column(Numeric(10, 2), default=0)  # semanal — solo si tipo_pago es sueldo/mixto
+    drive_folder_id: Mapped[Optional[str]] = mapped_column(String(120))
     activo: Mapped[bool] = mapped_column(default=True)
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -156,6 +170,7 @@ class Comision(Base):
     monto: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
     estado: Mapped[EstadoComision] = mapped_column(Enum(EstadoComision), default=EstadoComision.pendiente)
     fecha_pago: Mapped[Optional[date]] = mapped_column(Date)
+    pago_nomina_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pago_nomina.id"))  # qué pago la liquidó
 
     servicio: Mapped[Servicio] = relationship(back_populates="comisiones")
     trabajador: Mapped[Trabajador] = relationship()
@@ -169,10 +184,18 @@ class PagoNomina(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     fecha: Mapped[date] = mapped_column(Date, default=date.today)
     trabajador_id: Mapped[int] = mapped_column(ForeignKey("trabajador.id"))
-    monto: Mapped[float] = mapped_column(Numeric(10, 2))
+    monto: Mapped[float] = mapped_column(Numeric(10, 2))  # total pagado = sueldo + comisiones + extra
     n_servicios: Mapped[int] = mapped_column(Integer)
+    tipo: Mapped[str] = mapped_column(String(20), default=TipoPagoNomina.pago.value)
+    sueldo_incluido: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+    comisiones_incluidas: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+    extra_monto: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+    extra_concepto: Mapped[Optional[str]] = mapped_column(String(200))
+    concepto: Mapped[Optional[str]] = mapped_column(Text)
+    drive_url: Mapped[Optional[str]] = mapped_column(String(400))  # link al recibo PDF
 
     trabajador: Mapped[Trabajador] = relationship()
+    comisiones: Mapped[list["Comision"]] = relationship(foreign_keys="[Comision.pago_nomina_id]")
 
 
 class PeriodoCustom(Base):
@@ -202,6 +225,16 @@ class Archivo(Base):
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     servicio: Mapped[Optional[Servicio]] = relationship(back_populates="archivos")
+
+
+class Configuracion(Base):
+    """Ajustes globales simples tipo llave-valor (ej. fecha_inicio fija del
+    dashboard de nómina) — persisten en servidor, no en el navegador."""
+
+    __tablename__ = "configuracion"
+
+    clave: Mapped[str] = mapped_column(String(80), primary_key=True)
+    valor: Mapped[str] = mapped_column(String(200))
 
 
 class NotaCliente(Base):

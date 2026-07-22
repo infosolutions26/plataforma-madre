@@ -46,3 +46,10 @@ SERVICE_TYPES: dict[str, dict] = {
 
 def linea_de(tipo: str) -> str:
     return SERVICE_TYPES.get(tipo, {}).get("linea", "Otros")
+
+
+# Estatus de servicio.estatus que significan "el cliente ya pagó" — solo estos
+# habilitan que la comisión asociada pase a estar disponible para pagarle al
+# trabajador en nómina. "Banco" (esperando confirmación bancaria) y "Cortesía"
+# NO cuentan todavía.
+ESTATUS_LIBERA_COMISION = ["Pagado", "Banco Pagado"]

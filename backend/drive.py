@@ -24,11 +24,13 @@ from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 ROOT_FOLDER_NAME = "Plataforma Madre - Clientes"
+ROOT_TRABAJADORES_NAME = "Plataforma Madre - Trabajadores"
 COMPARTIR_CON = "documentos@solutionstaxes.com"
 
 _lock = threading.Lock()
 _service = None
 _root_folder_id = None
+_root_trabajadores_id = None
 
 
 def disponible() -> bool:
@@ -57,25 +59,35 @@ def extraer_folder_id(drive_url: str):
     return m.group(1) if m else None
 
 
-def _root_folder():
-    global _root_folder_id
-    if _root_folder_id:
-        return _root_folder_id
+def _get_or_create_root(nombre: str):
     svc = _get_service()
     q = (
-        f"name = '{ROOT_FOLDER_NAME}' and mimeType = 'application/vnd.google-apps.folder' "
+        f"name = '{nombre}' and mimeType = 'application/vnd.google-apps.folder' "
         "and trashed = false and 'me' in owners"
     )
     res = svc.files().list(q=q, fields="files(id)", pageSize=1).execute()
     files = res.get("files", [])
     if files:
-        _root_folder_id = files[0]["id"]
-        return _root_folder_id
-    meta = {"name": ROOT_FOLDER_NAME, "mimeType": "application/vnd.google-apps.folder"}
+        return files[0]["id"]
+    meta = {"name": nombre, "mimeType": "application/vnd.google-apps.folder"}
     carpeta = svc.files().create(body=meta, fields="id").execute()
-    _root_folder_id = carpeta["id"]
-    _compartir(_root_folder_id, COMPARTIR_CON)
+    folder_id = carpeta["id"]
+    _compartir(folder_id, COMPARTIR_CON)
+    return folder_id
+
+
+def _root_folder():
+    global _root_folder_id
+    if not _root_folder_id:
+        _root_folder_id = _get_or_create_root(ROOT_FOLDER_NAME)
     return _root_folder_id
+
+
+def _root_trabajadores():
+    global _root_trabajadores_id
+    if not _root_trabajadores_id:
+        _root_trabajadores_id = _get_or_create_root(ROOT_TRABAJADORES_NAME)
+    return _root_trabajadores_id
 
 
 def _compartir(file_id: str, correo: str, rol: str = "writer"):
@@ -100,6 +112,20 @@ def crear_carpeta_cliente(nombre: str, ssn_last4: str = None) -> str:
         "name": titulo,
         "mimeType": "application/vnd.google-apps.folder",
         "parents": [_root_folder()],
+    }
+    carpeta = svc.files().create(body=meta, fields="id").execute()
+    folder_id = carpeta["id"]
+    _compartir(folder_id, COMPARTIR_CON)
+    return folder_id
+
+
+def crear_carpeta_trabajador(nombre: str) -> str:
+    """Crea la carpeta de un trabajador (donde caen sus recibos de nómina)."""
+    svc = _get_service()
+    meta = {
+        "name": nombre.strip(),
+        "mimeType": "application/vnd.google-apps.folder",
+        "parents": [_root_trabajadores()],
     }
     carpeta = svc.files().create(body=meta, fields="id").execute()
     folder_id = carpeta["id"]

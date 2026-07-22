@@ -1,7 +1,7 @@
 import io
 import os
 import pathlib
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
@@ -17,12 +17,14 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 import drive
+import recibos
 from auth import current_trabajador, require_admin, router as auth_router
-from catalogo import SERVICE_TYPES, linea_de
+from catalogo import ESTATUS_LIBERA_COMISION, SERVICE_TYPES, linea_de
 from database import Base, engine, encrypt_ssn, decrypt_ssn, get_db, hash_password
 from models import (
     Archivo,
     Comision,
+    Configuracion,
     Empresa,
     EmpresaDueno,
     EstadoComision,
@@ -37,11 +39,26 @@ from models import (
 
 Base.metadata.create_all(bind=engine)
 
-try:
-    with engine.begin() as _conn:
-        _conn.execute(text("ALTER TABLE trabajador ADD COLUMN password_hash VARCHAR(120)"))
-except DBAPIError:
-    pass  # la columna ya existe — migración de una sola vez, idempotente
+_MIGRACIONES = [
+    "ALTER TABLE trabajador ADD COLUMN password_hash VARCHAR(120)",
+    "ALTER TABLE trabajador ADD COLUMN tipo_pago VARCHAR(20) DEFAULT 'comision'",
+    "ALTER TABLE trabajador ADD COLUMN sueldo_fijo NUMERIC(10,2) DEFAULT 0",
+    "ALTER TABLE trabajador ADD COLUMN drive_folder_id VARCHAR(120)",
+    "ALTER TABLE comision ADD COLUMN pago_nomina_id INTEGER REFERENCES pago_nomina(id)",
+    "ALTER TABLE pago_nomina ADD COLUMN tipo VARCHAR(20) DEFAULT 'pago'",
+    "ALTER TABLE pago_nomina ADD COLUMN sueldo_incluido NUMERIC(10,2) DEFAULT 0",
+    "ALTER TABLE pago_nomina ADD COLUMN comisiones_incluidas NUMERIC(10,2) DEFAULT 0",
+    "ALTER TABLE pago_nomina ADD COLUMN extra_monto NUMERIC(10,2) DEFAULT 0",
+    "ALTER TABLE pago_nomina ADD COLUMN extra_concepto VARCHAR(200)",
+    "ALTER TABLE pago_nomina ADD COLUMN concepto TEXT",
+    "ALTER TABLE pago_nomina ADD COLUMN drive_url VARCHAR(400)",
+]
+for _sql in _MIGRACIONES:
+    try:
+        with engine.begin() as _conn:
+            _conn.execute(text(_sql))
+    except DBAPIError:
+        pass  # la columna ya existe — migración de una sola vez, idempotente
 
 app = FastAPI(title="Plataforma Madre — API")
 app.add_middleware(
@@ -371,7 +388,7 @@ def listar_clientes(
         out.append({
             "tipo": "persona", "id": p.id, "nombre": p.nombre, "telefono": p.telefono,
             "actividad": p.actividad,
-            "ultimo_servicio": f"{ultimo.tipo} · {ultimo.fecha}" if ultimo else None,
+            "ultimo_servicio": f"{ultimo.tipo} · {ultimo.fecha.strftime('%m/%d/%Y')}" if ultimo else None,
         })
     for e in empresas:
         if mis_empresa_ids is not None and e.id not in mis_empresa_ids:
@@ -387,7 +404,7 @@ def listar_clientes(
         out.append({
             "tipo": "empresa", "id": e.id, "nombre": e.nombre, "giro": e.giro,
             "actividad": e.actividad,
-            "ultimo_servicio": f"{ultimo.tipo} · {ultimo.fecha}" if ultimo else None,
+            "ultimo_servicio": f"{ultimo.tipo} · {ultimo.fecha.strftime('%m/%d/%Y')}" if ultimo else None,
         })
     return out
 
@@ -794,12 +811,18 @@ class TrabajadorIn(BaseModel):
     rol: str = "trabajador"
     config_servicios: list[dict] = []
     password: Optional[str] = None  # si viene, se guarda (hasheada) o se actualiza
+    tipo_pago: str = "comision"  # comision | sueldo | mixto
+    sueldo_fijo: float = 0  # semanal — solo aplica si tipo_pago es sueldo/mixto
 
 
 @app.get("/api/trabajadores")
 def listar_trabajadores(db: Session = Depends(get_db), _=Depends(require_admin)):
     return [
-        {"id": t.id, "nombre": t.nombre, "correo": t.correo, "rol": t.rol.value, "config_servicios": t.config_servicios}
+        {
+            "id": t.id, "nombre": t.nombre, "correo": t.correo, "rol": t.rol.value,
+            "config_servicios": t.config_servicios, "tipo_pago": t.tipo_pago,
+            "sueldo_fijo": float(t.sueldo_fijo or 0), "drive_folder_id": t.drive_folder_id,
+        }
         for t in db.query(Trabajador).filter(Trabajador.activo).all()
     ]
 
@@ -819,10 +842,17 @@ def crear_trabajador(body: TrabajadorIn, db: Session = Depends(get_db), _=Depend
     t = Trabajador(
         nombre=body.nombre, correo=body.correo, rol=RolUsuario(body.rol), config_servicios=body.config_servicios,
         password_hash=hash_password(body.password) if body.password else None,
+        tipo_pago=body.tipo_pago, sueldo_fijo=body.sueldo_fijo,
     )
     db.add(t)
     db.commit()
     db.refresh(t)
+    if drive.disponible():
+        try:
+            t.drive_folder_id = drive.crear_carpeta_trabajador(t.nombre)
+            db.commit()
+        except Exception:
+            pass  # no bloquea el alta del trabajador — se puede reintentar con el backfill
     return {"id": t.id}
 
 
@@ -832,10 +862,23 @@ def editar_trabajador(trabajador_id: int, body: TrabajadorIn, db: Session = Depe
     if not t:
         raise HTTPException(status_code=404)
     t.nombre, t.correo, t.config_servicios = body.nombre, body.correo, body.config_servicios
+    t.tipo_pago, t.sueldo_fijo = body.tipo_pago, body.sueldo_fijo
     if body.password:
         t.password_hash = hash_password(body.password)
     db.commit()
     return {"ok": True}
+
+
+@app.post("/api/_backfill_trabajador_drive_folders")
+def backfill_trabajador_drive_folders(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Crea la carpeta de Drive a los trabajadores existentes que no la
+    tengan todavía. Endpoint temporal, se puede quitar después."""
+    creadas = []
+    for t in db.query(Trabajador).filter(Trabajador.drive_folder_id.is_(None)).all():
+        t.drive_folder_id = drive.crear_carpeta_trabajador(t.nombre)
+        creadas.append({"id": t.id, "nombre": t.nombre})
+    db.commit()
+    return {"creadas": creadas}
 
 
 @app.delete("/api/trabajadores/{trabajador_id}")
@@ -849,126 +892,376 @@ def eliminar_trabajador(trabajador_id: int, db: Session = Depends(get_db), _=Dep
 
 
 # ---------- nómina (admin) ----------
+#
+# Regla de oro: una comisión solo cuenta como "debida" al trabajador cuando el
+# SERVICIO que la generó tiene estatus "Pagado" o "Banco Pagado" (el cliente ya
+# pagó). Antes de eso existe (Comision.estado sigue "pendiente") pero no se
+# suma al saldo de nómina — así nunca se le paga a alguien por un servicio que
+# el cliente todavía no ha pagado.
 
-@app.get("/api/nomina/pendientes")
-def nomina_pendientes(db: Session = Depends(get_db), _=Depends(require_admin)):
-    rows = (
-        db.query(Trabajador.id, Trabajador.nombre, func.sum(Comision.monto), func.count(Comision.id))
-        .join(Comision, Comision.trabajador_id == Trabajador.id)
-        .filter(Comision.estado == EstadoComision.pendiente)
-        .group_by(Trabajador.id)
+def _nombre_cliente_servicio(db: Session, s: Servicio) -> str:
+    if s.persona_id:
+        p = db.get(Persona, s.persona_id)
+        return p.nombre if p else "—"
+    if s.empresa_id:
+        e = db.get(Empresa, s.empresa_id)
+        return e.nombre if e else "—"
+    return "—"
+
+
+def _comisiones_elegibles(db: Session, trabajador_id: int):
+    return (
+        db.query(Comision)
+        .join(Servicio, Servicio.id == Comision.servicio_id)
+        .filter(
+            Comision.trabajador_id == trabajador_id,
+            Comision.estado == EstadoComision.pendiente,
+            Servicio.estatus.in_(ESTATUS_LIBERA_COMISION),
+        )
         .all()
     )
-    return [{"trabajador_id": r[0], "trabajador": r[1], "monto": float(r[2]), "n_servicios": r[3]} for r in rows]
+
+
+def _comisiones_en_espera(db: Session, trabajador_id: int):
+    """Comisiones ya generadas pero cuyo servicio todavía no está pagado por
+    el cliente — informativo, no cuenta para el saldo a pagar."""
+    return (
+        db.query(Comision)
+        .join(Servicio, Servicio.id == Comision.servicio_id)
+        .filter(
+            Comision.trabajador_id == trabajador_id,
+            Comision.estado == EstadoComision.pendiente,
+            Servicio.estatus.notin_(ESTATUS_LIBERA_COMISION),
+        )
+        .all()
+    )
+
+
+@app.get("/api/nomina/resumen")
+def nomina_resumen(db: Session = Depends(get_db), _=Depends(require_admin)):
+    out = []
+    for t in db.query(Trabajador).filter(Trabajador.activo).order_by(Trabajador.nombre).all():
+        elegibles = _comisiones_elegibles(db, t.id)
+        en_espera = _comisiones_en_espera(db, t.id)
+        sueldo = float(t.sueldo_fijo or 0) if t.tipo_pago in ("sueldo", "mixto") else 0
+        monto_comisiones = sum(float(c.monto) for c in elegibles)
+        out.append({
+            "trabajador_id": t.id, "trabajador": t.nombre, "tipo_pago": t.tipo_pago,
+            "sueldo_sugerido": sueldo,
+            "comisiones_monto": monto_comisiones, "comisiones_n": len(elegibles),
+            "en_espera_monto": sum(float(c.monto) for c in en_espera), "en_espera_n": len(en_espera),
+            "total_sugerido": sueldo + monto_comisiones,
+        })
+    return out
+
+
+@app.get("/api/nomina/{trabajador_id}/detalle")
+def nomina_detalle(trabajador_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    t = db.get(Trabajador, trabajador_id)
+    if not t:
+        raise HTTPException(status_code=404)
+
+    def _fila(c):
+        s = c.servicio
+        return {
+            "comision_id": c.id, "servicio_id": s.id, "fecha": s.fecha.isoformat(),
+            "cliente": _nombre_cliente_servicio(db, s), "tipo_servicio": s.tipo,
+            "cobro": float(s.cobro), "estatus_servicio": s.estatus, "monto": float(c.monto),
+        }
+
+    return {
+        "trabajador": t.nombre, "tipo_pago": t.tipo_pago, "sueldo_fijo": float(t.sueldo_fijo or 0),
+        "elegibles": [_fila(c) for c in _comisiones_elegibles(db, trabajador_id)],
+        "en_espera": [_fila(c) for c in _comisiones_en_espera(db, trabajador_id)],
+    }
 
 
 class PagoIn(BaseModel):
     trabajador_id: int
+    sueldo: float = 0
+    extra_monto: float = 0
+    extra_concepto: Optional[str] = None
+    concepto: Optional[str] = None
 
 
 @app.post("/api/nomina/pagar")
-def marcar_pagado(body: PagoIn, db: Session = Depends(get_db), _=Depends(require_admin)):
-    pendientes = (
-        db.query(Comision)
-        .filter(Comision.trabajador_id == body.trabajador_id, Comision.estado == EstadoComision.pendiente)
-        .all()
-    )
-    if not pendientes:
-        raise HTTPException(status_code=400, detail="No hay comisiones pendientes para este trabajador.")
-    monto = sum(float(c.monto) for c in pendientes)
+def marcar_pagado(body: PagoIn, db: Session = Depends(get_db), trabajador_admin: Trabajador = Depends(require_admin)):
+    t = db.get(Trabajador, body.trabajador_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Trabajador no encontrado")
+    elegibles = _comisiones_elegibles(db, body.trabajador_id)
+    monto_comisiones = sum(float(c.monto) for c in elegibles)
+    total = round(body.sueldo + monto_comisiones + body.extra_monto, 2)
+    if total <= 0:
+        raise HTTPException(status_code=400, detail="El total a pagar debe ser mayor a $0.")
+
     hoy = date.today()
-    for c in pendientes:
+    pago = PagoNomina(
+        fecha=hoy, trabajador_id=t.id, monto=total, n_servicios=len(elegibles),
+        tipo="pago", sueldo_incluido=body.sueldo, comisiones_incluidas=monto_comisiones,
+        extra_monto=body.extra_monto, extra_concepto=body.extra_concepto, concepto=body.concepto,
+    )
+    db.add(pago)
+    db.flush()  # necesitamos pago.id antes de vincular las comisiones
+    detalle_comisiones = []
+    for c in elegibles:
         c.estado = EstadoComision.pagada
         c.fecha_pago = hoy
-    pago = PagoNomina(fecha=hoy, trabajador_id=body.trabajador_id, monto=monto, n_servicios=len(pendientes))
-    db.add(pago)
+        c.pago_nomina_id = pago.id
+        s = c.servicio
+        detalle_comisiones.append({
+            "fecha": s.fecha.strftime("%m/%d/%Y"), "cliente": _nombre_cliente_servicio(db, s),
+            "tipo_servicio": s.tipo, "monto": float(c.monto),
+        })
     db.commit()
-    return {"ok": True, "monto": monto, "n_servicios": len(pendientes)}
+    db.refresh(pago)
+
+    if drive.disponible():
+        try:
+            pdf_bytes = recibos.generar_recibo_pdf(pago, t, detalle_comisiones)
+            if not t.drive_folder_id:
+                t.drive_folder_id = drive.crear_carpeta_trabajador(t.nombre)
+            archivo = drive.subir_archivo(
+                t.drive_folder_id, f"Recibo {hoy.strftime('%Y-%m-%d')} - {t.nombre}.pdf",
+                pdf_bytes, "application/pdf",
+            )
+            pago.drive_url = archivo.get("webViewLink")
+            db.commit()
+        except Exception as exc:
+            print(f"[nomina] no se pudo generar/subir el recibo del pago {pago.id}: {exc}")
+
+    return {"ok": True, "pago_id": pago.id, "monto": total, "n_servicios": len(elegibles), "drive_url": pago.drive_url}
 
 
-@app.get("/api/nomina/historial")
-def nomina_historial(db: Session = Depends(get_db), _=Depends(require_admin)):
-    pagos = db.query(PagoNomina).order_by(PagoNomina.fecha.desc()).all()
-    return [
-        {"fecha": p.fecha, "trabajador": p.trabajador.nombre, "monto": float(p.monto), "n_servicios": p.n_servicios}
-        for p in pagos
-    ]
+@app.get("/api/nomina/{trabajador_id}/historial")
+def nomina_historial_trabajador(trabajador_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    pagos = (
+        db.query(PagoNomina)
+        .filter(PagoNomina.trabajador_id == trabajador_id)
+        .order_by(PagoNomina.fecha.desc(), PagoNomina.id.desc())
+        .all()
+    )
+    out = []
+    for p in pagos:
+        servicios = []
+        for c in p.comisiones:
+            s = c.servicio
+            servicios.append({
+                "fecha": s.fecha.strftime("%m/%d/%Y"), "cliente": _nombre_cliente_servicio(db, s),
+                "tipo_servicio": s.tipo, "monto": float(c.monto),
+            })
+        out.append({
+            "id": p.id, "fecha": p.fecha.isoformat(), "tipo": p.tipo, "monto": float(p.monto),
+            "sueldo_incluido": float(p.sueldo_incluido or 0), "comisiones_incluidas": float(p.comisiones_incluidas or 0),
+            "extra_monto": float(p.extra_monto or 0), "extra_concepto": p.extra_concepto,
+            "concepto": p.concepto, "n_servicios": p.n_servicios, "drive_url": p.drive_url,
+            "servicios": servicios,
+        })
+    return out
 
 
-# ---------- periodos / estadísticas (admin) ----------
+@app.get("/api/nomina/dashboard")
+def nomina_dashboard(
+    fecha_inicio: Optional[date] = None, fecha_fin: Optional[date] = None,
+    db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    q = db.query(PagoNomina).filter(PagoNomina.tipo == "pago")
+    if fecha_inicio:
+        q = q.filter(PagoNomina.fecha >= fecha_inicio)
+    if fecha_fin:
+        q = q.filter(PagoNomina.fecha <= fecha_fin)
+    pagos = q.order_by(PagoNomina.fecha).all()
 
-class PeriodoIn(BaseModel):
-    nombre: str
-    desde: date
-    hasta: date
+    por_trabajador = {}
+    semanas = {}
+    total_general = 0.0
+    for p in pagos:
+        monto = float(p.monto)
+        total_general += monto
+        nombre = p.trabajador.nombre
+        por_trabajador.setdefault(nombre, 0.0)
+        por_trabajador[nombre] += monto
+        inicio_semana = p.fecha - timedelta(days=p.fecha.weekday())  # lunes de esa semana
+        key = inicio_semana.isoformat()
+        semanas.setdefault(key, {})
+        semanas[key].setdefault(nombre, 0.0)
+        semanas[key][nombre] += monto
+
+    por_semana = []
+    for key in sorted(semanas.keys()):
+        por_trab = semanas[key]
+        por_semana.append({
+            "semana_inicio": key, "total": sum(por_trab.values()),
+            "por_trabajador": [{"trabajador": k, "monto": v} for k, v in sorted(por_trab.items())],
+        })
+
+    return {
+        "total_general": total_general,
+        "por_trabajador": [{"trabajador": k, "monto": v} for k, v in sorted(por_trabajador.items())],
+        "por_semana": por_semana,
+    }
 
 
-@app.get("/api/periodos")
-def listar_periodos(db: Session = Depends(get_db), _=Depends(require_admin)):
-    return [{"nombre": p.nombre, "desde": p.desde, "hasta": p.hasta} for p in db.query(PeriodoCustom).all()]
+@app.get("/api/config/{clave}")
+def obtener_config(clave: str, db: Session = Depends(get_db), _=Depends(require_admin)):
+    c = db.get(Configuracion, clave)
+    return {"clave": clave, "valor": c.valor if c else None}
 
 
-@app.post("/api/periodos")
-def crear_periodo(body: PeriodoIn, db: Session = Depends(get_db), _=Depends(require_admin)):
-    p = PeriodoCustom(nombre=body.nombre, desde=body.desde, hasta=body.hasta)
-    db.add(p)
+class ConfigIn(BaseModel):
+    valor: str
+
+
+@app.put("/api/config/{clave}")
+def guardar_config(clave: str, body: ConfigIn, db: Session = Depends(get_db), _=Depends(require_admin)):
+    c = db.get(Configuracion, clave)
+    if c:
+        c.valor = body.valor
+    else:
+        db.add(Configuracion(clave=clave, valor=body.valor))
     db.commit()
     return {"ok": True}
 
 
-def _periodo_de(fecha: date, periodos_custom: list[PeriodoCustom]) -> str:
-    for p in periodos_custom:
-        if p.desde <= fecha <= p.hasta:
-            return p.nombre
-    return f"{'Temporada' if 1 <= fecha.month <= 4 else 'Post-temporada'} {fecha.year}"
+@app.post("/api/_reset_saldos_nomina")
+def reset_saldos_nomina(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Pone en $0 el saldo pendiente de comisión de todos los trabajadores,
+    dejando un registro de ajuste auditable por cada uno (no es un pago real).
+    Pensado para correrse UNA vez al activar el nuevo control de nómina.
+    Endpoint temporal, se puede quitar después."""
+    hoy = date.today()
+    ajustes = []
+    for t in db.query(Trabajador).filter(Trabajador.activo).all():
+        pendientes = db.query(Comision).filter(
+            Comision.trabajador_id == t.id, Comision.estado == EstadoComision.pendiente,
+        ).all()
+        if not pendientes:
+            continue
+        monto = sum(float(c.monto) for c in pendientes)
+        pago = PagoNomina(
+            fecha=hoy, trabajador_id=t.id, monto=monto, n_servicios=len(pendientes),
+            tipo="ajuste_inicial", comisiones_incluidas=monto,
+            concepto="Ajuste inicial — saldo puesto en $0 al activar el nuevo control de nómina "
+                     "(comisiones de servicios registrados antes de este cambio). No representa una "
+                     "transferencia de dinero real.",
+        )
+        db.add(pago)
+        db.flush()
+        for c in pendientes:
+            c.estado = EstadoComision.pagada
+            c.fecha_pago = hoy
+            c.pago_nomina_id = pago.id
+        ajustes.append({"trabajador": t.nombre, "monto": monto, "n_servicios": len(pendientes)})
+    db.commit()
+    return {"ajustes": ajustes}
 
 
-@app.get("/api/periodos/detectados")
-def periodos_detectados(db: Session = Depends(get_db), _=Depends(require_admin)):
-    """Lista de periodos que realmente existen — las temporadas auto-calculadas
-    (a partir de las fechas de los servicios) más las personalizadas. Para llenar
-    el segmented-control de Estadísticas sin inventar temporadas vacías."""
-    periodos_custom = db.query(PeriodoCustom).all()
-    nombres = {p.nombre for p in periodos_custom}
-    for (fecha,) in db.query(Servicio.fecha).all():
-        nombres.add(_periodo_de(fecha, periodos_custom))
-    return ["Todo"] + sorted(nombres, reverse=True)
-
+# ---------- estadísticas (admin) ----------
+#
+# Reemplaza el viejo sistema de "temporadas" (nombres auto-generados a partir
+# del año de la fecha, que se corrompían con typos de fecha en datos viejos —
+# ej. "Temporada 203"). Ahora todo se filtra directo por rango de fecha del
+# servicio, sin inventar nombres de periodo.
 
 @app.get("/api/estadisticas")
-def estadisticas(periodo: str = "Todo", db: Session = Depends(get_db), _=Depends(require_admin)):
-    periodos_custom = db.query(PeriodoCustom).all()
-    servicios = db.query(Servicio).all()
-    if periodo != "Todo":
-        servicios = [s for s in servicios if _periodo_de(s.fecha, periodos_custom) == periodo]
+def estadisticas(
+    fecha_inicio: Optional[date] = None, fecha_fin: Optional[date] = None,
+    tipo: Optional[str] = None, db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    q = db.query(Servicio)
+    if fecha_inicio:
+        q = q.filter(Servicio.fecha >= fecha_inicio)
+    if fecha_fin:
+        q = q.filter(Servicio.fecha <= fecha_fin)
+    if tipo:
+        q = q.filter(Servicio.tipo == tipo)
+    servicios = q.all()
 
-    ingresos = sum(float(s.cobro) for s in servicios)
-    por_linea: dict[str, float] = {}
+    trabajador_nombres = {t.id: t.nombre for t in db.query(Trabajador).all()}
+    ingresos = 0.0
+    por_linea, por_trabajador, por_tipo_cita, por_metodo_pago, por_estatus = {}, {}, {}, {}, {}
     for s in servicios:
+        cobro = float(s.cobro)
+        ingresos += cobro
         linea = linea_de(s.tipo)
-        por_linea[linea] = por_linea.get(linea, 0) + float(s.cobro)
+        por_linea[linea] = por_linea.get(linea, 0) + cobro
+        tn = trabajador_nombres.get(s.trabajador_id, "—")
+        por_trabajador[tn] = por_trabajador.get(tn, 0) + cobro
+        cita = (s.detalle or {}).get("tipoCita") or "Sin especificar"
+        por_tipo_cita[cita] = por_tipo_cita.get(cita, 0) + 1
+        metodo = s.metodo_pago or "Sin especificar"
+        por_metodo_pago[metodo] = por_metodo_pago.get(metodo, 0) + 1
+        por_estatus[s.estatus] = por_estatus.get(s.estatus, 0) + 1
 
     servicio_ids = {s.id for s in servicios}
-    comisiones_pend = (
-        db.query(Comision)
-        .filter(Comision.estado == EstadoComision.pendiente, Comision.servicio_id.in_(servicio_ids))
-        .all()
-        if servicio_ids
-        else []
+    comisiones = (
+        db.query(Comision).filter(Comision.servicio_id.in_(servicio_ids)).all() if servicio_ids else []
     )
-    por_trabajador: dict[str, float] = {}
-    for c in comisiones_pend:
-        por_trabajador[c.trabajador.nombre] = por_trabajador.get(c.trabajador.nombre, 0) + float(c.monto)
+    comisiones_pendientes = sum(float(c.monto) for c in comisiones if c.estado == EstadoComision.pendiente)
+    comisiones_pagadas = sum(float(c.monto) for c in comisiones if c.estado == EstadoComision.pagada)
 
     return {
-        "periodo": periodo,
         "ingresos": ingresos,
-        "comisiones_pendientes": sum(por_trabajador.values()),
         "servicios": len(servicios),
         "clientes_atendidos": len({(s.persona_id, s.empresa_id) for s in servicios}),
+        "comisiones_pendientes": comisiones_pendientes,
+        "comisiones_pagadas": comisiones_pagadas,
         "por_linea": por_linea,
         "por_trabajador": por_trabajador,
+        "por_tipo_cita": por_tipo_cita,
+        "por_metodo_pago": por_metodo_pago,
+        "por_estatus": por_estatus,
     }
+
+
+@app.get("/api/reportes/servicios")
+def buscar_servicios(
+    trabajador_id: Optional[int] = None, tipo: Optional[str] = None,
+    fecha_inicio: Optional[date] = None, fecha_fin: Optional[date] = None,
+    tipo_cita: Optional[str] = None, metodo_pago: Optional[str] = None,
+    estatus: Optional[str] = None, estatus_comision: Optional[str] = None,  # pendiente | pagada
+    db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    """Filtros combinables para armar cualquier tabla de servicios (ej. 'Taxes
+    1040 de Erik de tal fecha a tal fecha, de cita remota, pendientes de pago
+    de comisión'). Alimenta la sección de filtros avanzados, exportable a CSV
+    desde el frontend."""
+    q = db.query(Servicio)
+    if trabajador_id:
+        q = q.filter(Servicio.trabajador_id == trabajador_id)
+    if tipo:
+        q = q.filter(Servicio.tipo == tipo)
+    if fecha_inicio:
+        q = q.filter(Servicio.fecha >= fecha_inicio)
+    if fecha_fin:
+        q = q.filter(Servicio.fecha <= fecha_fin)
+    if metodo_pago:
+        q = q.filter(Servicio.metodo_pago == metodo_pago)
+    if estatus:
+        q = q.filter(Servicio.estatus == estatus)
+    servicios = q.order_by(Servicio.fecha.desc()).all()
+    if tipo_cita:
+        servicios = [s for s in servicios if (s.detalle or {}).get("tipoCita") == tipo_cita]
+
+    trabajador_nombres = {t.id: t.nombre for t in db.query(Trabajador).all()}
+    comisiones_by_servicio = {c.servicio_id: c for c in db.query(Comision).filter(
+        Comision.servicio_id.in_([s.id for s in servicios])
+    ).all()} if servicios else {}
+
+    out = []
+    for s in servicios:
+        comision = comisiones_by_servicio.get(s.id)
+        if estatus_comision and (not comision or comision.estado.value != estatus_comision):
+            continue
+        out.append({
+            "id": s.id, "fecha": s.fecha.strftime("%m/%d/%Y"), "cliente": _nombre_cliente_servicio(db, s),
+            "tipo": s.tipo, "trabajador": trabajador_nombres.get(s.trabajador_id, "—"),
+            "cobro": float(s.cobro), "metodo_pago": s.metodo_pago, "estatus": s.estatus,
+            "tipo_cita": (s.detalle or {}).get("tipoCita"),
+            "comision_monto": float(comision.monto) if comision else 0,
+            "comision_estado": comision.estado.value if comision else None,
+        })
+    return out
 
 
 # ---------- frontend (debe ir al final: es un catch-all de "/") ----------

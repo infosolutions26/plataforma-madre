@@ -554,21 +554,47 @@
         </div>
         <div id="nominaContent">
           <h1 class="page-title">Nómina y comisiones</h1>
-          <p class="page-sub">Ligado directo a <code>servicio</code> — al marcar un pago, esas comisiones dejan de aparecer como pendientes, igual que en la hoja de antes.</p>
-
-          <div class="stat-row" id="nominaResumen"></div>
+          <p class="page-sub">Una comisión solo cuenta como debida cuando el servicio que la generó está "Pagado" o "Banco Pagado" — nunca se paga una comisión de un servicio que el cliente todavía no ha pagado.</p>
 
           <div class="panel">
-            <div class="h2row"><h2>Pendiente de pago, por trabajador</h2></div>
-            <div id="nominaPendientes"></div>
+            <div class="h2row"><h2>Pagar a un trabajador</h2></div>
+            <div class="table-wrap" style="border:none;">
+              <table>
+                <thead><tr>
+                  <th>Trabajador</th><th>Tipo de pago</th><th class="num">Sueldo sugerido</th>
+                  <th class="num">Comisiones listas</th><th class="num">En espera de cliente</th>
+                  <th class="num">Total sugerido</th><th></th>
+                </tr></thead>
+                <tbody id="nominaResumenBody"></tbody>
+              </table>
+            </div>
           </div>
 
           <div class="panel">
-            <h2>Historial de pagos hechos</h2>
+            <div class="h2row"><h2>Historial por trabajador</h2></div>
+            <div class="field" style="max-width:320px;"><label>Trabajador</label><select id="histTrabajadorSelect"></select></div>
+            <div class="table-wrap" style="border:none; margin-top:10px;">
+              <table>
+                <thead><tr><th>Fecha</th><th>Tipo</th><th class="num">Monto</th><th># servicios</th><th>Concepto</th><th>Recibo</th></tr></thead>
+                <tbody id="nominaHistorialBody"></tbody>
+              </table>
+            </div>
+            <div id="nominaHistorialDetalle" style="margin-top:10px;"></div>
+          </div>
+
+          <div class="panel">
+            <div class="h2row"><h2>Dashboard semanal de nómina</h2></div>
+            <div class="field-row3">
+              <div class="field"><label>Fecha de inicio (fija)</label><input type="date" id="dashFechaInicio"></div>
+              <div class="field"><label>Hasta</label><input type="date" id="dashFechaFin"></div>
+              <div class="field" style="justify-content:flex-end;"><button class="btn small" id="btnDashAplicar" type="button">Aplicar</button></div>
+            </div>
+            <p class="hint" style="margin:-4px 0 10px;">La fecha de inicio se guarda — no se mueve hasta que la cambies, aunque cierres sesión o recargues.</p>
+            <div class="stat-row" id="dashResumen"></div>
             <div class="table-wrap" style="border:none;">
               <table>
-                <thead><tr><th>Fecha de pago</th><th>Trabajador</th><th class="num"># servicios</th><th class="num">Monto</th></tr></thead>
-                <tbody id="nominaHistorial"></tbody>
+                <thead><tr><th>Semana (lunes)</th><th>Trabajador</th><th class="num">Monto</th></tr></thead>
+                <tbody id="dashSemanaBody"></tbody>
               </table>
             </div>
           </div>
@@ -586,11 +612,19 @@
           <div class="view-head" style="margin-bottom:14px;">
             <div>
               <h1 class="page-title">Estadística de la empresa</h1>
-              <p class="page-sub">Ingresos, comisiones y actividad — calculado directo de <code>servicio</code> y <code>comisión</code>.</p>
+              <p class="page-sub">Ingresos, comisiones y actividad — filtrado directo por fecha del servicio.</p>
             </div>
-            <div style="display:flex; flex-direction:column; align-items:flex-end; gap:8px;">
-              <div class="segmented" id="statsPeriodo"></div>
-              <button class="btn small" id="btnNuevaTemporada" type="button">+ Nueva temporada</button>
+          </div>
+
+          <div class="panel">
+            <div class="field-row3">
+              <div class="field"><label>Desde</label><input type="date" id="statsFechaInicio"></div>
+              <div class="field"><label>Hasta</label><input type="date" id="statsFechaFin"></div>
+              <div class="field"><label>Tipo de servicio</label><select id="statsTipo"><option value="">Todos</option></select></div>
+            </div>
+            <div style="display:flex; gap:8px; margin-top:4px;">
+              <button class="btn primary small" id="btnStatsFiltrar" type="button">Aplicar</button>
+              <button class="btn small" id="btnStatsLimpiar" type="button">Limpiar</button>
             </div>
           </div>
 
@@ -601,8 +635,58 @@
             <div id="barLineas"></div>
           </div>
           <div class="panel">
-            <h2>Comisiones pendientes por trabajador</h2>
+            <h2>Ingresos por preparador</h2>
             <div id="barTrabajadores"></div>
+          </div>
+          <div class="panel">
+            <h2>Tipo de cita</h2>
+            <div id="barTipoCita"></div>
+          </div>
+          <div class="panel">
+            <h2>Método de pago</h2>
+            <div id="barMetodoPago"></div>
+          </div>
+          <div class="panel">
+            <h2>Estatus de pago</h2>
+            <div id="barEstatus"></div>
+          </div>
+
+          <div class="panel">
+            <h2>Filtros avanzados</h2>
+            <p class="hint" style="margin:-4px 0 10px;">Combina cualquier filtro para armar la tabla exacta que necesites y expórtala a CSV.</p>
+            <div class="field-row3">
+              <div class="field"><label>Trabajador</label><select id="advTrabajador"><option value="">Todos</option></select></div>
+              <div class="field"><label>Tipo de servicio</label><select id="advTipo"><option value="">Todos</option></select></div>
+              <div class="field"><label>Método de pago</label><select id="advMetodo"><option value="">Todos</option></select></div>
+            </div>
+            <div class="field-row3">
+              <div class="field"><label>Desde</label><input type="date" id="advDesde"></div>
+              <div class="field"><label>Hasta</label><input type="date" id="advHasta"></div>
+              <div class="field"><label>Tipo de cita</label><select id="advTipoCita">
+                <option value="">Todos</option><option>Presencial</option><option>Virtual</option><option>Llamada / mensaje</option>
+              </select></div>
+            </div>
+            <div class="field-row3">
+              <div class="field"><label>Estatus de pago</label><select id="advEstatus"><option value="">Todos</option></select></div>
+              <div class="field"><label>Estatus de comisión</label><select id="advEstatusComision">
+                <option value="">Todos</option><option value="pendiente">Pendiente</option><option value="pagada">Pagada</option>
+              </select></div>
+              <div></div>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn primary small" id="btnAdvBuscar" type="button">Buscar</button>
+              <button class="btn small" id="btnAdvExportar" type="button">Exportar CSV</button>
+            </div>
+            <div class="table-wrap" style="margin-top:14px;">
+              <table>
+                <thead><tr>
+                  <th>Fecha</th><th>Cliente</th><th>Servicio</th><th>Trabajador</th>
+                  <th class="num">Cobro</th><th>Método</th><th>Estatus</th><th>Cita</th>
+                  <th class="num">Comisión</th><th>Estado comisión</th>
+                </tr></thead>
+                <tbody id="advResultBody"></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </section>
@@ -716,6 +800,13 @@
         <input id="trbPassword" type="text" autocomplete="new-password">
       </div>
       <p class="hint" id="trbHintNuevo">Todo trabajador nuevo ve solo Clientes y los servicios que le configures abajo — Nómina, Trabajadores y Estadísticas son exclusivos del Admin. El correo y la contraseña son con lo que inicia sesión.</p>
+      <div class="divider-lbl">Cómo se le paga</div>
+      <div class="field-row">
+        <div class="field"><label>Tipo de pago</label><select id="trbTipoPago">
+          <option value="comision">Solo comisión</option><option value="sueldo">Solo sueldo fijo</option><option value="mixto">Mixto (sueldo + comisión)</option>
+        </select></div>
+        <div class="field"><label>Sueldo fijo semanal</label><input type="number" id="trbSueldoFijo" placeholder="0"></div>
+      </div>
       <div class="divider-lbl">Servicios que da y % / monto por defecto</div>
       <div id="trbConfigRows"></div>
       <button class="btn small" id="btnAddTrbConfig" type="button">+ agregar servicio</button>
@@ -725,28 +816,6 @@
       <div style="display:flex; gap:8px;">
         <button class="btn" data-close>Cancelar</button>
         <button class="btn primary" id="btnGuardarTrabajador">Guardar trabajador</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ============ MODAL: nueva temporada ============ -->
-<div class="overlay" id="overlayTemporada">
-  <div class="modal">
-    <div class="modal-head"><h2>Nueva temporada</h2><button class="btn ghost small" data-close>✕</button></div>
-    <div class="modal-body">
-      <div class="field"><label>Nombre</label><input id="tmpNombre" placeholder="ej. Temporada 2027"></div>
-      <div class="field-row">
-        <div class="field"><label>Desde</label><input type="date" id="tmpDesde"></div>
-        <div class="field"><label>Hasta</label><input type="date" id="tmpHasta"></div>
-      </div>
-      <p class="hint">Los servicios cuya fecha caiga en este rango se agrupan bajo este nombre en Estadísticas, en vez de usar el cálculo automático (temporada = enero–abril).</p>
-    </div>
-    <div class="modal-foot">
-      <div></div>
-      <div style="display:flex; gap:8px;">
-        <button class="btn" data-close>Cancelar</button>
-        <button class="btn primary" id="btnGuardarTemporada">Crear temporada</button>
       </div>
     </div>
   </div>
@@ -762,6 +831,32 @@
     <div class="modal-foot">
       <button class="btn" id="btnEliminarDoc" style="color:#b3372c;">Eliminar</button>
       <a class="btn primary" id="btnDescargarDoc" href="#" target="_blank" rel="noopener">Descargar</a>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: pagar nómina ============ -->
+<div class="overlay" id="overlayPagarNomina">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-head"><h2 id="pagoModalTitle">Pagar a trabajador</h2><button class="btn ghost small" data-close>✕</button></div>
+    <div class="modal-body">
+      <div class="field-row">
+        <div class="field"><label>Sueldo fijo</label><input type="number" id="pagoSueldo" placeholder="0"></div>
+        <div class="field"><label>Comisiones listas para pagar</label><div class="field-fixed" id="pagoComisionesTotal">$0</div></div>
+      </div>
+      <div id="pagoComisionesDetalle" class="table-wrap" style="border:none;"></div>
+      <div id="pagoEnEsperaDetalle"></div>
+      <div class="divider-lbl">Extra / bono (opcional)</div>
+      <div class="field-row">
+        <div class="field"><label>Monto extra</label><input type="number" id="pagoExtraMonto" placeholder="0"></div>
+        <div class="field"><label>Concepto del extra</label><input id="pagoExtraConcepto" placeholder="ej. Bono puntualidad"></div>
+      </div>
+      <div class="field"><label>Nota general del pago (opcional)</label><textarea id="pagoConcepto" rows="2"></textarea></div>
+      <div class="field-fixed" id="pagoTotalFinal" style="font-size:18px; text-align:right;">Total: $0</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close>Cancelar</button>
+      <button class="btn primary" id="btnConfirmarPago">Confirmar pago</button>
     </div>
   </div>
 </div>
@@ -812,7 +907,9 @@
   };
   var ALL_TIPOS = Object.keys(SERVICE_TYPES);
   var ESTATUS_PAGO_BASE = ["Pendiente de pago", "Pagado"];
-  var ESTATUS_PAGO_TAXES = ["Pendiente de pago", "Pagado", "Cortesía", "Banco"];
+  var ESTATUS_PAGO_TAXES = ["Pendiente de pago", "Pagado", "Cortesía", "Banco", "Banco Pagado"];
+  // Estatus que cuentan como "el cliente ya pagó" — habilitan la comisión hacia nómina.
+  var ESTATUS_LIBERA_COMISION = ["Pagado", "Banco Pagado"];
   var SISTEMA_CONTAS_URL = "https://contas-2f4b.onrender.com/";
 
   var state = {
@@ -824,12 +921,27 @@
     pendingArchivos: [],
     camStream: null,
     camStreamProfile: null,
-    statsPeriodo: "Todo",
+    statsCatalogosCargados: false,
     workersBasico: [],
     comisionYaPagada: false
   };
 
   function money(n){ return "$" + Number(n||0).toLocaleString("en-US"); }
+  function fmtFecha(iso){
+    if (!iso) return "—";
+    var m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return iso;
+    return m[2] + "/" + m[3] + "/" + m[1];
+  }
+  function fmtFechaHora(iso){
+    if (!iso) return "—";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    var mm = String(d.getMonth()+1).padStart(2,"0"), dd = String(d.getDate()).padStart(2,"0");
+    var hh = d.getHours(), min = String(d.getMinutes()).padStart(2,"0");
+    var ampm = hh >= 12 ? "PM" : "AM"; hh = hh % 12 || 12;
+    return mm + "/" + dd + "/" + d.getFullYear() + " " + hh + ":" + min + " " + ampm;
+  }
   function initials(name){ return (name||"").split(" ").slice(0,2).map(function(w){return w[0]||"";}).join("").toUpperCase(); }
   function el(tag, cls, html){ var e=document.createElement(tag); if(cls) e.className=cls; if(html!==undefined) e.innerHTML=html; return e; }
   function statusPill(s){
@@ -911,7 +1023,7 @@
         if (s.comision_monto !== null && s.comision_monto !== undefined) {
           comisionHtml = money(s.comision_monto) + " " + (s.comision_estado === "pagada" ? '<span class="pill ok">pagada</span>' : '<span class="pill warn">pendiente</span>');
         }
-        tr.innerHTML = '<td>'+s.fecha+'</td><td>'+(s.cliente||"—")+'</td><td>'+s.tipo+'</td><td class="num">'+money(s.cobro)+'</td><td>'+statusPill(s.estatus)+'</td><td>'+comisionHtml+'</td>';
+        tr.innerHTML = '<td>'+fmtFecha(s.fecha)+'</td><td>'+(s.cliente||"—")+'</td><td>'+s.tipo+'</td><td class="num">'+money(s.cobro)+'</td><td>'+statusPill(s.estatus)+'</td><td>'+comisionHtml+'</td>';
         tr.addEventListener("click", function(){ openServicioModal(s.id, null); });
         tbody.appendChild(tr);
       });
@@ -1175,7 +1287,7 @@
       }
       lista.forEach(function(s){
         var tr = el("tr","row-click");
-        tr.innerHTML = '<td>'+s.fecha+'</td><td>'+s.tipo+'</td><td>'+s.trabajador+'</td><td class="num">'+money(s.cobro)+'</td><td>'+statusPill(s.estatus)+'</td>';
+        tr.innerHTML = '<td>'+fmtFecha(s.fecha)+'</td><td>'+s.tipo+'</td><td>'+s.trabajador+'</td><td class="num">'+money(s.cobro)+'</td><td>'+statusPill(s.estatus)+'</td>';
         tr.addEventListener("click", function(){ openServicioModal(s.id, null); });
         tbody.appendChild(tr);
       });
@@ -1193,7 +1305,7 @@
         var d = el("div");
         d.style.cssText = "padding:10px 0; border-bottom:1px dashed var(--line);";
         var texto = el("div"); texto.style.cssText = "font-size:13px; white-space:pre-wrap;"; texto.textContent = n.texto;
-        var fecha = new Date(n.creado_en).toLocaleString("es-MX", {dateStyle:"medium", timeStyle:"short"});
+        var fecha = fmtFechaHora(n.creado_en);
         var meta = el("div","hint",""); meta.style.marginTop = "4px";
         meta.textContent = n.trabajador + " · " + fecha;
         var rm = el("button","rm-btn","✕"); rm.type="button"; rm.style.cssText="float:right; font-size:12px;";
@@ -1646,6 +1758,8 @@
     document.getElementById("trbPasswordLabel").textContent = editing ? "Contraseña nueva (déjala vacía para no cambiarla)" : "Contraseña";
     document.getElementById("trbPassword").placeholder = editing ? "Déjala vacía para no cambiarla" : "Obligatoria — la necesita para poder entrar";
     document.getElementById("trbHintNuevo").style.display = editing ? "none" : "";
+    document.getElementById("trbTipoPago").value = editing ? editing.tipo_pago : "comision";
+    document.getElementById("trbSueldoFijo").value = editing ? (editing.sueldo_fijo || 0) : 0;
     var rows = document.getElementById("trbConfigRows");
     rows.innerHTML = "";
     if (editing && editing.config_servicios && editing.config_servicios.length) {
@@ -1671,7 +1785,11 @@
     });
     var password = document.getElementById("trbPassword").value;
     if (!state.editingWorkerId && !password) { alert("Falta la contraseña — la necesita para poder entrar."); return; }
-    var body = { nombre: nombre, correo: correo, rol: "trabajador", config_servicios: config, password: password || null };
+    var body = {
+      nombre: nombre, correo: correo, rol: "trabajador", config_servicios: config, password: password || null,
+      tipo_pago: document.getElementById("trbTipoPago").value,
+      sueldo_fijo: Number(document.getElementById("trbSueldoFijo").value) || 0,
+    };
     var btn = this;
     btn.disabled = true;
     var savePromise = state.editingWorkerId
@@ -1689,112 +1807,294 @@
 
   // ---------- nómina ----------
   function renderNomina(){
-    Promise.all([api("/api/nomina/pendientes"), api("/api/nomina/historial")]).then(function(results){
-      var pendientes = results[0], historial = results[1];
-      var totalPendiente = pendientes.reduce(function(a,p){ return a+p.monto; }, 0);
-      var totalPagadoHistorico = historial.reduce(function(a,p){ return a+p.monto; }, 0);
-      var totalServiciosPendientes = pendientes.reduce(function(a,p){ return a+p.n_servicios; }, 0);
+    renderNominaResumen();
+    cargarHistTrabajadorSelect();
+    cargarDashFechaInicio();
+  }
 
-      document.getElementById("nominaResumen").innerHTML =
-        '<div class="stat-tile"><div class="lbl">Pendiente total</div><div class="val">'+money(totalPendiente)+'</div><div class="sub">'+pendientes.length+' trabajadores</div></div>' +
-        '<div class="stat-tile"><div class="lbl">Pagado histórico</div><div class="val">'+money(totalPagadoHistorico)+'</div><div class="sub">todas las líneas</div></div>' +
-        '<div class="stat-tile"><div class="lbl">Pagos registrados</div><div class="val">'+historial.length+'</div><div class="sub">corridas de nómina</div></div>' +
-        '<div class="stat-tile"><div class="lbl">Servicios sin cerrar comisión</div><div class="val">'+totalServiciosPendientes+'</div><div class="sub">todas las líneas</div></div>';
-
-      var wrap = document.getElementById("nominaPendientes");
-      wrap.innerHTML = "";
-      if (!pendientes.length) { wrap.innerHTML = '<p class="hint">No hay comisiones pendientes de pago.</p>'; }
-      pendientes.sort(function(a,b){ return b.monto - a.monto; }).forEach(function(p){
-        var row = el("div","payee-row");
-        row.innerHTML =
-          '<div class="payee-left"><span class="avatar">'+initials(p.trabajador)+'</span><div><div style="font-weight:700;">'+p.trabajador+'</div><div class="payee-sub">'+p.n_servicios+' servicio(s) sin pagar</div></div></div>' +
-          '<div style="display:flex; align-items:center; gap:12px;"><span class="payee-amt">'+money(p.monto)+'</span></div>';
-        var btn = el("button","btn small ok","Marcar como pagado");
-        row.lastElementChild.appendChild(btn);
-        btn.addEventListener("click", function(){
-          btn.disabled = true;
-          api("/api/nomina/pagar", {method:"POST", body: {trabajador_id: p.trabajador_id}}).then(function(){
-            renderNomina();
-          }).catch(function(e){
-            alert("No se pudo marcar como pagado: " + e.message);
-            btn.disabled = false;
-          });
-        });
-        wrap.appendChild(row);
-      });
-
-      var hist = document.getElementById("nominaHistorial");
-      hist.innerHTML = "";
-      historial.forEach(function(p){
+  function renderNominaResumen(){
+    api("/api/nomina/resumen").then(function(rows){
+      var tbody = document.getElementById("nominaResumenBody");
+      tbody.innerHTML = "";
+      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7"><p class="hint" style="padding:14px 0;">Sin trabajadores activos.</p></td></tr>'; return; }
+      rows.forEach(function(r){
         var tr = el("tr");
-        tr.innerHTML = '<td>'+p.fecha+'</td><td>'+p.trabajador+'</td><td class="num">'+p.n_servicios+'</td><td class="num">'+money(p.monto)+'</td>';
-        hist.appendChild(tr);
+        tr.innerHTML =
+          '<td>'+r.trabajador+'</td><td>'+r.tipo_pago+'</td>' +
+          '<td class="num">'+money(r.sueldo_sugerido)+'</td>' +
+          '<td class="num">'+money(r.comisiones_monto)+' ('+r.comisiones_n+')</td>' +
+          '<td class="num">'+money(r.en_espera_monto)+' ('+r.en_espera_n+')</td>' +
+          '<td class="num" style="font-weight:700;">'+money(r.total_sugerido)+'</td><td></td>';
+        var btn = el("button","btn small primary","Pagar");
+        btn.type = "button";
+        btn.disabled = r.total_sugerido <= 0;
+        btn.addEventListener("click", function(){ abrirModalPago(r); });
+        tr.lastElementChild.appendChild(btn);
+        tbody.appendChild(tr);
+      });
+    });
+  }
+
+  state.pagoActual = null;
+  function abrirModalPago(resumenRow){
+    document.getElementById("pagoModalTitle").textContent = "Pagar a " + resumenRow.trabajador;
+    document.getElementById("pagoSueldo").value = resumenRow.sueldo_sugerido || 0;
+    document.getElementById("pagoExtraMonto").value = 0;
+    document.getElementById("pagoExtraConcepto").value = "";
+    document.getElementById("pagoConcepto").value = "";
+    state.pagoActual = { trabajador_id: resumenRow.trabajador_id, comisiones_monto: resumenRow.comisiones_monto };
+    document.getElementById("pagoComisionesTotal").textContent = money(resumenRow.comisiones_monto);
+    actualizarTotalPago();
+
+    api("/api/nomina/" + resumenRow.trabajador_id + "/detalle").then(function(d){
+      var detWrap = document.getElementById("pagoComisionesDetalle");
+      if (!d.elegibles.length) {
+        detWrap.innerHTML = '<p class="hint">Sin comisiones listas para pagar.</p>';
+      } else {
+        var rows = d.elegibles.map(function(c){
+          return '<tr><td>'+fmtFecha(c.fecha)+'</td><td>'+c.cliente+'</td><td>'+c.tipo_servicio+'</td><td class="num">'+money(c.monto)+'</td></tr>';
+        }).join("");
+        detWrap.innerHTML = '<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Servicio</th><th class="num">Comisión</th></tr></thead><tbody>'+rows+'</tbody></table>';
+      }
+      var espWrap = document.getElementById("pagoEnEsperaDetalle");
+      espWrap.innerHTML = d.en_espera.length
+        ? '<p class="hint">'+d.en_espera.length+' servicio(s) más ('+money(d.en_espera.reduce(function(a,c){return a+c.monto;},0))+') en espera de que el cliente pague — no se incluyen en este pago.</p>'
+        : "";
+    });
+    openModal("overlayPagarNomina");
+  }
+  function actualizarTotalPago(){
+    var sueldo = Number(document.getElementById("pagoSueldo").value) || 0;
+    var extra = Number(document.getElementById("pagoExtraMonto").value) || 0;
+    var comisiones = state.pagoActual ? state.pagoActual.comisiones_monto : 0;
+    document.getElementById("pagoTotalFinal").textContent = "Total: " + money(sueldo + comisiones + extra);
+  }
+  document.getElementById("pagoSueldo").addEventListener("input", actualizarTotalPago);
+  document.getElementById("pagoExtraMonto").addEventListener("input", actualizarTotalPago);
+  document.getElementById("btnConfirmarPago").addEventListener("click", function(){
+    if (!state.pagoActual) return;
+    var btn = this; btn.disabled = true;
+    var body = {
+      trabajador_id: state.pagoActual.trabajador_id,
+      sueldo: Number(document.getElementById("pagoSueldo").value) || 0,
+      extra_monto: Number(document.getElementById("pagoExtraMonto").value) || 0,
+      extra_concepto: document.getElementById("pagoExtraConcepto").value.trim() || null,
+      concepto: document.getElementById("pagoConcepto").value.trim() || null,
+    };
+    api("/api/nomina/pagar", {method:"POST", body: body}).then(function(res){
+      closeModal("overlayPagarNomina");
+      renderNominaResumen();
+      renderHistorialTrabajador();
+      var msg = "Pago registrado: " + money(res.monto);
+      if (res.drive_url) msg += "\n\nRecibo generado en Drive.";
+      alert(msg);
+    }).catch(function(e){
+      alert("No se pudo registrar el pago: " + e.message);
+    }).then(function(){ btn.disabled = false; });
+  });
+
+  function cargarHistTrabajadorSelect(){
+    var sel = document.getElementById("histTrabajadorSelect");
+    if (sel.dataset.cargado) { renderHistorialTrabajador(); return Promise.resolve(); }
+    return api("/api/trabajadores/basico").then(function(trabs){
+      sel.dataset.cargado = "1";
+      trabs.forEach(function(t){
+        var opt = document.createElement("option");
+        opt.value = t.id; opt.textContent = t.nombre;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener("change", renderHistorialTrabajador);
+      if (trabs.length) renderHistorialTrabajador();
+    });
+  }
+  function renderHistorialTrabajador(){
+    var id = document.getElementById("histTrabajadorSelect").value;
+    if (!id) return;
+    api("/api/nomina/" + id + "/historial").then(function(pagos){
+      var tbody = document.getElementById("nominaHistorialBody");
+      tbody.innerHTML = "";
+      document.getElementById("nominaHistorialDetalle").innerHTML = "";
+      if (!pagos.length) { tbody.innerHTML = '<tr><td colspan="6"><p class="hint" style="padding:14px 0;">Sin pagos registrados.</p></td></tr>'; return; }
+      pagos.forEach(function(p){
+        var tr = el("tr","row-click");
+        tr.innerHTML =
+          '<td>'+fmtFecha(p.fecha)+'</td><td>'+(p.tipo==="ajuste_inicial"?"Ajuste inicial":"Pago")+'</td>' +
+          '<td class="num">'+money(p.monto)+'</td><td class="num">'+p.n_servicios+'</td>' +
+          '<td>'+(p.concepto||p.extra_concepto||"—")+'</td>' +
+          '<td>'+(p.drive_url ? '<a href="'+p.drive_url+'" target="_blank" rel="noopener">Ver</a>' : "—")+'</td>';
+        tr.addEventListener("click", function(){ mostrarDetallePago(p); });
+        tbody.appendChild(tr);
+      });
+    });
+  }
+  function mostrarDetallePago(p){
+    var wrap = document.getElementById("nominaHistorialDetalle");
+    var rows = p.servicios.map(function(s){
+      return '<tr><td>'+s.fecha+'</td><td>'+s.cliente+'</td><td>'+s.tipo_servicio+'</td><td class="num">'+money(s.monto)+'</td></tr>';
+    }).join("");
+    wrap.innerHTML =
+      '<div class="panel" style="margin-top:14px;"><h2>Desglose del pago del '+fmtFecha(p.fecha)+'</h2>' +
+      '<p class="hint">Sueldo: '+money(p.sueldo_incluido)+' · Comisiones: '+money(p.comisiones_incluidas)+
+      (p.extra_monto ? ' · Extra ('+(p.extra_concepto||"sin concepto")+'): '+money(p.extra_monto) : '') + '</p>' +
+      (rows ? '<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Servicio</th><th class="num">Comisión</th></tr></thead><tbody>'+rows+'</tbody></table>' : '<p class="hint">Sin servicios asociados a este pago.</p>') +
+      '</div>';
+  }
+
+  function cargarDashFechaInicio(){
+    return api("/api/config/nomina_dashboard_fecha_inicio").then(function(r){
+      if (r.valor && !document.getElementById("dashFechaInicio").value) {
+        document.getElementById("dashFechaInicio").value = r.valor;
+      }
+      renderDashboardNomina();
+    });
+  }
+  document.getElementById("btnDashAplicar").addEventListener("click", function(){
+    var fi = document.getElementById("dashFechaInicio").value;
+    if (fi) api("/api/config/nomina_dashboard_fecha_inicio", {method:"PUT", body: {valor: fi}});
+    renderDashboardNomina();
+  });
+  function renderDashboardNomina(){
+    var params = new URLSearchParams();
+    var fi = document.getElementById("dashFechaInicio").value;
+    var ff = document.getElementById("dashFechaFin").value;
+    if (fi) params.set("fecha_inicio", fi);
+    if (ff) params.set("fecha_fin", ff);
+    api("/api/nomina/dashboard?" + params.toString()).then(function(d){
+      document.getElementById("dashResumen").innerHTML =
+        '<div class="stat-tile"><div class="lbl">Total pagado</div><div class="val">'+money(d.total_general)+'</div><div class="sub">en el rango</div></div>' +
+        d.por_trabajador.map(function(t){
+          return '<div class="stat-tile"><div class="lbl">'+t.trabajador+'</div><div class="val">'+money(t.monto)+'</div><div class="sub">total en el rango</div></div>';
+        }).join("");
+      var tbody = document.getElementById("dashSemanaBody");
+      tbody.innerHTML = "";
+      if (!d.por_semana.length) { tbody.innerHTML = '<tr><td colspan="3"><p class="hint" style="padding:14px 0;">Sin pagos en este rango.</p></td></tr>'; return; }
+      d.por_semana.forEach(function(sem){
+        sem.por_trabajador.forEach(function(t, idx){
+          var tr = el("tr");
+          tr.innerHTML = '<td>'+(idx===0 ? fmtFecha(sem.semana_inicio) : "")+'</td><td>'+t.trabajador+'</td><td class="num">'+money(t.monto)+'</td>';
+          tbody.appendChild(tr);
+        });
       });
     });
   }
 
   // ---------- stats / periodos ----------
-  function renderStatsPeriodoControl(){
-    return api("/api/periodos/detectados").then(function(periods){
-      if (periods.indexOf(state.statsPeriodo) === -1) state.statsPeriodo = "Todo";
-      var wrap = document.getElementById("statsPeriodo");
-      wrap.innerHTML = "";
-      periods.forEach(function(p){
-        var b = el("button", p===state.statsPeriodo ? "active" : "", p);
-        b.type = "button";
-        b.addEventListener("click", function(){ state.statsPeriodo = p; renderStats(); });
-        wrap.appendChild(b);
+  var METODOS_PAGO = ["Zelle","Cash","Card","Card - Square","Card - Chase","Card - Solutions","Banco","Banco Sta Barbara","Cortesía / Referidos"];
+  var ESTATUS_PAGO_TODOS = ["Pendiente de pago","Pagado","Cortesía","Banco","Banco Pagado"];
+
+  function poblarSelect(sel, opciones){
+    opciones.forEach(function(o){
+      var opt = document.createElement("option");
+      opt.value = o; opt.textContent = o;
+      sel.appendChild(opt);
+    });
+  }
+  function renderBar(elId, dataObj, emptyMsg, esDinero){
+    var keys = Object.keys(dataObj);
+    var max = Math.max.apply(null, keys.map(function(k){return dataObj[k];}).concat([1]));
+    var wrap = document.getElementById(elId);
+    wrap.innerHTML = keys.length ? "" : '<p class="hint">'+emptyMsg+'</p>';
+    keys.sort(function(a,b){return dataObj[b]-dataObj[a];}).forEach(function(k){
+      var val = esDinero ? money(dataObj[k]) : dataObj[k];
+      var r = el("div","bar-row");
+      r.innerHTML = '<span class="bname">'+k+'</span><div class="bar-track"><div class="bar-fill" style="width:'+(100*dataObj[k]/max)+'%"></div></div><span class="bval">'+val+'</span>';
+      wrap.appendChild(r);
+    });
+  }
+  function cargarCatalogosStats(){
+    if (state.statsCatalogosCargados) return Promise.resolve();
+    state.statsCatalogosCargados = true;
+    return Promise.all([
+      api("/api/catalogo/servicio-tipos"),
+      api("/api/trabajadores/basico"),
+    ]).then(function(r){
+      var tipos = r[0], trabajadores = r[1];
+      poblarSelect(document.getElementById("statsTipo"), tipos);
+      poblarSelect(document.getElementById("advTipo"), tipos);
+      poblarSelect(document.getElementById("advMetodo"), METODOS_PAGO);
+      poblarSelect(document.getElementById("advEstatus"), ESTATUS_PAGO_TODOS);
+      var advTrb = document.getElementById("advTrabajador");
+      trabajadores.forEach(function(t){
+        var opt = document.createElement("option");
+        opt.value = t.id; opt.textContent = t.nombre;
+        advTrb.appendChild(opt);
       });
     });
   }
-  document.getElementById("btnNuevaTemporada").addEventListener("click", function(){
-    document.getElementById("tmpNombre").value = "";
-    document.getElementById("tmpDesde").value = "";
-    document.getElementById("tmpHasta").value = "";
-    openModal("overlayTemporada");
-  });
-  document.getElementById("btnGuardarTemporada").addEventListener("click", function(){
-    var nombre = document.getElementById("tmpNombre").value.trim();
-    var desde = document.getElementById("tmpDesde").value;
-    var hasta = document.getElementById("tmpHasta").value;
-    if (!nombre || !desde || !hasta) { alert("Completa nombre, desde y hasta."); return; }
-    api("/api/periodos", {method:"POST", body: {nombre: nombre, desde: desde, hasta: hasta}}).then(function(){
-      state.statsPeriodo = nombre;
-      closeModal("overlayTemporada");
-      renderStats();
-    }).catch(function(e){ alert("No se pudo crear la temporada: " + e.message); });
+  document.getElementById("btnStatsFiltrar").addEventListener("click", renderStats);
+  document.getElementById("btnStatsLimpiar").addEventListener("click", function(){
+    document.getElementById("statsFechaInicio").value = "";
+    document.getElementById("statsFechaFin").value = "";
+    document.getElementById("statsTipo").value = "";
+    renderStats();
   });
   function renderStats(){
-    renderStatsPeriodoControl().then(function(){
-      return api("/api/estadisticas?periodo=" + encodeURIComponent(state.statsPeriodo));
+    cargarCatalogosStats().then(function(){
+      var params = new URLSearchParams();
+      var fi = document.getElementById("statsFechaInicio").value;
+      var ff = document.getElementById("statsFechaFin").value;
+      var tipo = document.getElementById("statsTipo").value;
+      if (fi) params.set("fecha_inicio", fi);
+      if (ff) params.set("fecha_fin", ff);
+      if (tipo) params.set("tipo", tipo);
+      return api("/api/estadisticas?" + params.toString());
     }).then(function(data){
       document.getElementById("statsResumen").innerHTML =
-        '<div class="stat-tile"><div class="lbl">Ingresos</div><div class="val">'+money(data.ingresos)+'</div><div class="sub">'+data.periodo+'</div></div>' +
-        '<div class="stat-tile"><div class="lbl">Comisiones pendientes</div><div class="val">'+money(data.comisiones_pendientes)+'</div><div class="sub">en este periodo</div></div>' +
-        '<div class="stat-tile"><div class="lbl">Clientes atendidos</div><div class="val">'+data.clientes_atendidos+'</div><div class="sub">en este periodo</div></div>' +
+        '<div class="stat-tile"><div class="lbl">Ingresos</div><div class="val">'+money(data.ingresos)+'</div><div class="sub">en el rango filtrado</div></div>' +
+        '<div class="stat-tile"><div class="lbl">Comisiones pendientes</div><div class="val">'+money(data.comisiones_pendientes)+'</div><div class="sub">comisiones pagadas: '+money(data.comisiones_pagadas)+'</div></div>' +
+        '<div class="stat-tile"><div class="lbl">Clientes atendidos</div><div class="val">'+data.clientes_atendidos+'</div><div class="sub">en el rango filtrado</div></div>' +
         '<div class="stat-tile"><div class="lbl">Servicios</div><div class="val">'+data.servicios+'</div><div class="sub">todas las líneas</div></div>';
 
-      var porLinea = data.por_linea;
-      var maxLinea = Math.max.apply(null, Object.keys(porLinea).map(function(k){return porLinea[k];}).concat([1]));
-      var barLineas = document.getElementById("barLineas");
-      barLineas.innerHTML = Object.keys(porLinea).length ? "" : '<p class="hint">Sin servicios en este periodo.</p>';
-      Object.keys(porLinea).sort(function(a,b){return porLinea[b]-porLinea[a];}).forEach(function(l){
-        var r = el("div","bar-row");
-        r.innerHTML = '<span class="bname">'+l+'</span><div class="bar-track"><div class="bar-fill" style="width:'+(100*porLinea[l]/maxLinea)+'%"></div></div><span class="bval">'+money(porLinea[l])+'</span>';
-        barLineas.appendChild(r);
-      });
-
-      var porTrb = data.por_trabajador;
-      var maxTrb = Math.max.apply(null, Object.keys(porTrb).map(function(k){return porTrb[k];}).concat([1]));
-      var barTrb = document.getElementById("barTrabajadores");
-      barTrb.innerHTML = Object.keys(porTrb).length ? "" : '<p class="hint">Sin comisiones pendientes en este periodo.</p>';
-      Object.keys(porTrb).sort(function(a,b){return porTrb[b]-porTrb[a];}).forEach(function(t){
-        var r = el("div","bar-row");
-        r.innerHTML = '<span class="bname">'+t+'</span><div class="bar-track"><div class="bar-fill" style="width:'+(100*porTrb[t]/maxTrb)+'%"></div></div><span class="bval">'+money(porTrb[t])+'</span>';
-        barTrb.appendChild(r);
-      });
+      renderBar("barLineas", data.por_linea, "Sin servicios en este rango.", true);
+      renderBar("barTrabajadores", data.por_trabajador, "Sin servicios en este rango.", true);
+      renderBar("barTipoCita", data.por_tipo_cita, "Sin datos de tipo de cita en este rango.", false);
+      renderBar("barMetodoPago", data.por_metodo_pago, "Sin datos de método de pago en este rango.", false);
+      renderBar("barEstatus", data.por_estatus, "Sin datos de estatus en este rango.", false);
     });
   }
+
+  // ---------- filtros avanzados / exportación ----------
+  state.advResultados = [];
+  document.getElementById("btnAdvBuscar").addEventListener("click", function(){
+    var params = new URLSearchParams();
+    var map = {
+      advTrabajador: "trabajador_id", advTipo: "tipo", advMetodo: "metodo_pago",
+      advDesde: "fecha_inicio", advHasta: "fecha_fin", advTipoCita: "tipo_cita",
+      advEstatus: "estatus", advEstatusComision: "estatus_comision",
+    };
+    Object.keys(map).forEach(function(id){
+      var v = document.getElementById(id).value;
+      if (v) params.set(map[id], v);
+    });
+    api("/api/reportes/servicios?" + params.toString()).then(function(rows){
+      state.advResultados = rows;
+      var tbody = document.getElementById("advResultBody");
+      tbody.innerHTML = "";
+      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="10"><p class="hint" style="padding:14px 0;">Sin resultados.</p></td></tr>'; return; }
+      rows.forEach(function(r){
+        var tr = el("tr");
+        tr.innerHTML =
+          '<td>'+r.fecha+'</td><td>'+r.cliente+'</td><td>'+r.tipo+'</td><td>'+r.trabajador+'</td>' +
+          '<td class="num">'+money(r.cobro)+'</td><td>'+(r.metodo_pago||"—")+'</td><td>'+statusPill(r.estatus)+'</td>' +
+          '<td>'+(r.tipo_cita||"—")+'</td><td class="num">'+money(r.comision_monto)+'</td><td>'+(r.comision_estado||"—")+'</td>';
+        tbody.appendChild(tr);
+      });
+    });
+  });
+  document.getElementById("btnAdvExportar").addEventListener("click", function(){
+    if (!state.advResultados.length) { alert("Primero busca resultados para exportar."); return; }
+    var header = ["Fecha","Cliente","Servicio","Trabajador","Cobro","Método","Estatus","Tipo de cita","Comisión","Estado comisión"];
+    var csvEsc = function(v){ v = String(v==null?"":v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
+    var lines = [header.join(",")];
+    state.advResultados.forEach(function(r){
+      lines.push([r.fecha, r.cliente, r.tipo, r.trabajador, r.cobro, r.metodo_pago||"", r.estatus, r.tipo_cita||"", r.comision_monto, r.comision_estado||""].map(csvEsc).join(","));
+    });
+    var blob = new Blob(["﻿" + lines.join("\n")], {type: "text/csv;charset=utf-8;"});
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "servicios_" + new Date().toISOString().slice(0,10) + ".csv";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  });
 
   // ---------- init ----------
   document.getElementById("btnLogout").addEventListener("click", function(){
