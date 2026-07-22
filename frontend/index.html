@@ -83,8 +83,7 @@
     display: grid;
     grid-template-columns: 216px 1fr;
     height: 100vh;
-    max-width: 1180px;
-    margin: 0 auto;
+    width: 100%;
     background: var(--bg);
   }
 
@@ -514,15 +513,34 @@
             </div>
           </div>
           <div>
-            <div class="panel">
-              <h2>Historial de servicios</h2>
-              <p class="hint" id="profServicesHint" style="margin:-6px 0 10px;">Clic en una fila para editarla — los datos se van actualizando con el tiempo.</p>
+            <p class="hint" id="profServicesHint" style="margin:0 0 10px;">Clic en una fila para editarla — los datos se van actualizando con el tiempo.</p>
+            <div class="panel" id="profTaxesPanel" style="display:none;">
+              <h2>Taxes</h2>
               <div class="table-wrap" style="border:none;">
                 <table>
-                  <thead><tr><th>Fecha</th><th>Servicio</th><th>Trabajador</th><th class="num">Cobro</th><th>Estado</th></tr></thead>
-                  <tbody id="profServiceBody"></tbody>
+                  <thead><tr>
+                    <th>Fecha</th><th>Servicio</th><th>Trabajador</th><th class="num">Cobro</th>
+                    <th>Método</th><th>Estatus</th><th>Año</th><th>Tipo cita</th><th>Status taxes</th>
+                    <th>Comisión</th><th>Notas</th>
+                  </tr></thead>
+                  <tbody id="profServiceTaxesBody"></tbody>
                 </table>
               </div>
+            </div>
+            <div class="panel" id="profOtrosPanel" style="display:none;">
+              <h2>Otros servicios</h2>
+              <div class="table-wrap" style="border:none;">
+                <table>
+                  <thead><tr>
+                    <th>Fecha</th><th>Servicio</th><th>Trabajador</th><th class="num">Cobro</th>
+                    <th>Método</th><th>Estatus</th><th>Detalle</th><th>Comisión</th><th>Notas</th>
+                  </tr></thead>
+                  <tbody id="profServiceOtrosBody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="panel" id="profServiceEmpty" style="display:none;">
+              <p class="hint">Sin servicios todavía.</p>
             </div>
             <div class="panel">
               <h2>Notas</h2>
@@ -756,11 +774,18 @@
       <p class="hint">Es el estatus de cobro. El progreso del trámite (para Taxes) se actualiza en "Status taxes" arriba.</p>
       <div class="field"><label>Notas</label><textarea id="svcNotas" rows="2"></textarea></div>
 
-      <div class="divider-lbl">Documento adjunto</div>
-      <div class="attach-row">
-        <label class="btn small" for="svcFileInput">📎 Elegir archivo</label>
-        <input type="file" id="svcFileInput" style="display:none;" accept="image/*,.pdf" multiple>
-        <button class="btn small" id="btnTomarFoto" type="button">📷 Tomar foto</button>
+      <div class="divider-lbl">Documentos (Google Drive)</div>
+      <p class="hint" id="svcDocsHint">Guarda el servicio primero para poder subir documentos.</p>
+      <div id="svcDocsButtons" style="display:none;">
+        <div class="attach-row">
+          <label class="btn small" for="svcFileInputId">📎 Subir ID (carpeta general del cliente)</label>
+          <input type="file" id="svcFileInputId" style="display:none;" accept="image/*,.pdf" multiple>
+          <button class="btn small" id="btnTomarFoto" type="button">📷 Tomar foto</button>
+        </div>
+        <div class="attach-row" id="svcFormaRow" style="display:none;">
+          <label class="btn small" for="svcFileInputForma">📄 Subir forma (carpeta del año del servicio)</label>
+          <input type="file" id="svcFileInputForma" style="display:none;" accept="image/*,.pdf" multiple>
+        </div>
       </div>
       <div class="cam-panel" id="camPanel">
         <video id="camVideo" autoplay playsinline></video>
@@ -771,7 +796,7 @@
           <button class="btn small" id="btnCerrarCam" type="button">Cerrar cámara</button>
         </div>
       </div>
-      <div class="attach-row" id="svcArchivosList"></div>
+      <div id="svcUploadStatus" class="hint"></div>
 
       <div class="divider-lbl">Comisión</div>
       <div class="field-fixed" id="svcComisionInfo">—</div>
@@ -826,7 +851,7 @@
         <label id="trbPasswordLabel">Contraseña</label>
         <input id="trbPassword" type="text" autocomplete="new-password">
       </div>
-      <p class="hint" id="trbHintNuevo">Todo trabajador nuevo ve solo Clientes y los servicios que le configures abajo — Nómina, Trabajadores y Estadísticas son exclusivos del Admin. El correo y la contraseña son con lo que inicia sesión.</p>
+      <p class="hint" id="trbHintNuevo">Todo trabajador nuevo ve por defecto solo Servicios y Clientes — dale permisos extra abajo si necesita ver Nómina, Estadísticas o Trabajadores. El correo y la contraseña son con lo que inicia sesión.</p>
       <div class="divider-lbl">Cómo se le paga</div>
       <div class="field-row3">
         <div class="field"><label>Tipo de pago</label><select id="trbTipoPago">
@@ -837,6 +862,13 @@
           <option value="true">Activo</option><option value="false">Inactivo</option>
         </select></div>
       </div>
+      <div class="divider-lbl">Permisos extra (además de Servicios y Clientes)</div>
+      <div style="display:flex; gap:18px; flex-wrap:wrap;">
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="trbPermisoNomina"> Nómina</label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="trbPermisoEstadisticas"> Estadísticas</label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="trbPermisoTrabajadores"> Trabajadores</label>
+      </div>
+      <p class="hint" style="margin:0;">"Trabajadores" incluye poder ver sueldos y editar permisos de otros — dalo con cuidado.</p>
       <div class="divider-lbl">Servicios que da y % / monto por defecto</div>
       <div id="trbConfigRows"></div>
       <button class="btn small" id="btnAddTrbConfig" type="button">+ agregar servicio</button>
@@ -949,7 +981,6 @@
     editingServiceId: null,
     editingWorkerId: null,
     clienteModalChained: false,
-    pendingArchivos: [],
     camStream: null,
     camStreamProfile: null,
     statsCatalogosCargados: false,
@@ -1062,22 +1093,29 @@
   }
 
   // ---------- session / permissions ----------
+  function tienePermiso(nombrePermiso){
+    var u = state.currentUser;
+    return u.rol === "admin" || (u.permisos||[]).indexOf(nombrePermiso) > -1;
+  }
   function applyPermissions(){
     var u = state.currentUser;
     var isAdmin = u.rol === "admin";
+    var puedeNomina = tienePermiso("nomina");
+    var puedeStats = tienePermiso("estadisticas");
+    var puedeTrabajadores = tienePermiso("trabajadores");
     document.getElementById("userAvatar").textContent = initials(u.nombre);
     document.getElementById("userName").textContent = u.nombre;
     document.getElementById("userRol").textContent = isAdmin ? "Admin" : "Trabajador";
     document.getElementById("sessionHint").textContent = isAdmin
       ? "Admin: ve y modifica todo — trabajadores, nómina, estadísticas, temporadas."
       : "Solo ves tus propios clientes (a los que les has hecho un servicio) y tus tipos de servicio configurados.";
-    document.querySelector('.navitem[data-view="nomina"]').classList.toggle("hidden", !isAdmin);
-    document.querySelector('.navitem[data-view="stats"]').classList.toggle("hidden", !isAdmin);
-    document.querySelector('.navitem[data-view="trabajadores"]').classList.toggle("hidden", !isAdmin);
-    document.getElementById("nominaLocked").style.display = isAdmin ? "none" : "block";
-    document.getElementById("nominaContent").style.display = isAdmin ? "block" : "none";
-    document.getElementById("statsLocked").style.display = isAdmin ? "none" : "block";
-    document.getElementById("statsContent").style.display = isAdmin ? "block" : "none";
+    document.querySelector('.navitem[data-view="nomina"]').classList.toggle("hidden", !puedeNomina);
+    document.querySelector('.navitem[data-view="stats"]').classList.toggle("hidden", !puedeStats);
+    document.querySelector('.navitem[data-view="trabajadores"]').classList.toggle("hidden", !puedeTrabajadores);
+    document.getElementById("nominaLocked").style.display = puedeNomina ? "none" : "block";
+    document.getElementById("nominaContent").style.display = puedeNomina ? "block" : "none";
+    document.getElementById("statsLocked").style.display = puedeStats ? "none" : "block";
+    document.getElementById("statsContent").style.display = puedeStats ? "block" : "none";
     showView("servicios");
     renderServiciosTable();
   }
@@ -1357,25 +1395,70 @@
     }, "image/jpeg", 0.92);
   });
 
+  function escapeHtml(s){
+    return String(s==null?"":s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+  function comisionCellHtml(s){
+    if (!s.comisiones || !s.comisiones.length) return "—";
+    var c = s.comisiones[0];
+    return money(c.monto) + " " + (c.estado === "pagada" ? '<span class="pill ok">pagada</span>' : '<span class="pill warn">pendiente</span>');
+  }
+  function notasCellHtml(s){
+    if (!s.notas) return "—";
+    var corta = s.notas.length > 40 ? s.notas.slice(0,40) + "…" : s.notas;
+    return '<span title="'+escapeHtml(s.notas)+'">'+escapeHtml(corta)+'</span>';
+  }
+  function detalleTexto(tipo, detalle){
+    var conf = SERVICE_TYPES[tipo];
+    if (!conf || !detalle) return "—";
+    var partes = conf.extra.map(function(campo){
+      var v = detalle[campo.key];
+      if (v === undefined || v === null || v === "") return null;
+      return campo.label + ": " + v;
+    }).filter(Boolean);
+    return partes.length ? partes.join(" · ") : "—";
+  }
   function renderProfileServices(){
     var u = state.currentUser;
-    var tbody = document.getElementById("profServiceBody");
     document.getElementById("profServicesHint").textContent = u.rol === "admin"
       ? "Clic en una fila para editarla — los datos se van actualizando con el tiempo."
       : "Solo tus propios servicios con este cliente. Clic en una fila para editarla — útil para ir actualizando el status de taxes día a día.";
-    tbody.innerHTML = '<tr><td colspan="5"><p class="hint" style="padding:10px 0;">Cargando…</p></td></tr>';
+    var taxesBody = document.getElementById("profServiceTaxesBody");
+    var otrosBody = document.getElementById("profServiceOtrosBody");
+    taxesBody.innerHTML = otrosBody.innerHTML = "";
+    document.getElementById("profTaxesPanel").style.display = "none";
+    document.getElementById("profOtrosPanel").style.display = "none";
+    document.getElementById("profServiceEmpty").style.display = "none";
     api("/api/clientes/" + state.currentProfile.tipo + "/" + state.currentProfile.id + "/servicios").then(function(lista){
-      tbody.innerHTML = "";
-      if (!lista.length) {
-        tbody.innerHTML = '<tr><td colspan="5"><p class="hint" style="padding:10px 0;">Sin servicios tuyos con este cliente todavía.</p></td></tr>';
-        return;
+      if (!lista.length) { document.getElementById("profServiceEmpty").style.display = ""; return; }
+      var taxes = lista.filter(function(s){ return s.linea === "Taxes"; });
+      var otros = lista.filter(function(s){ return s.linea !== "Taxes"; });
+      if (taxes.length) {
+        document.getElementById("profTaxesPanel").style.display = "";
+        taxes.forEach(function(s){
+          var d = s.detalle || {};
+          var tr = el("tr","row-click");
+          tr.innerHTML =
+            '<td>'+fmtFecha(s.fecha)+'</td><td>'+s.tipo+'</td><td>'+s.trabajador+'</td><td class="num">'+money(s.cobro)+'</td>' +
+            '<td>'+(s.metodo_pago||"—")+'</td><td>'+statusPill(s.estatus)+'</td>' +
+            '<td>'+(d.anio||"—")+'</td><td>'+(d.tipoCita||"—")+'</td><td>'+(d.statusTaxes||"—")+'</td>' +
+            '<td>'+comisionCellHtml(s)+'</td><td>'+notasCellHtml(s)+'</td>';
+          tr.addEventListener("click", function(){ openServicioModal(s.id, null); });
+          taxesBody.appendChild(tr);
+        });
       }
-      lista.forEach(function(s){
-        var tr = el("tr","row-click");
-        tr.innerHTML = '<td>'+fmtFecha(s.fecha)+'</td><td>'+s.tipo+'</td><td>'+s.trabajador+'</td><td class="num">'+money(s.cobro)+'</td><td>'+statusPill(s.estatus)+'</td>';
-        tr.addEventListener("click", function(){ openServicioModal(s.id, null); });
-        tbody.appendChild(tr);
-      });
+      if (otros.length) {
+        document.getElementById("profOtrosPanel").style.display = "";
+        otros.forEach(function(s){
+          var tr = el("tr","row-click");
+          tr.innerHTML =
+            '<td>'+fmtFecha(s.fecha)+'</td><td>'+s.tipo+'</td><td>'+s.trabajador+'</td><td class="num">'+money(s.cobro)+'</td>' +
+            '<td>'+(s.metodo_pago||"—")+'</td><td>'+statusPill(s.estatus)+'</td>' +
+            '<td>'+detalleTexto(s.tipo, s.detalle)+'</td><td>'+comisionCellHtml(s)+'</td><td>'+notasCellHtml(s)+'</td>';
+          tr.addEventListener("click", function(){ openServicioModal(s.id, null); });
+          otrosBody.appendChild(tr);
+        });
+      }
     });
   }
   document.getElementById("btnBackToList").addEventListener("click", function(){ showView("buscador"); });
@@ -1413,7 +1496,13 @@
   });
 
   // ---------- modals ----------
-  function openModal(id){ document.getElementById(id).classList.add("open"); }
+  function openModal(id){
+    var overlay = document.getElementById(id);
+    overlay.classList.add("open");
+    overlay.scrollTop = 0;
+    var body = overlay.querySelector(".modal-body");
+    if (body) body.scrollTop = 0;
+  }
   function closeModal(id){ document.getElementById(id).classList.remove("open"); }
   document.querySelectorAll("[data-close]").forEach(function(b){
     b.addEventListener("click", function(){
@@ -1578,26 +1667,44 @@
     return d;
   }
 
-  function renderArchivosList(){
-    var wrap = document.getElementById("svcArchivosList");
-    wrap.innerHTML = "";
-    state.pendingArchivos.forEach(function(a, idx){
-      var chip = el("div","attach-chip");
-      chip.innerHTML = (a.tipo==="foto" ? "<span>📷</span>" : "<span>📄</span>") + "<span>"+a.nombre+"</span>";
-      var rm = el("button","rm-btn","✕"); rm.type="button"; rm.style.fontSize="12px";
-      rm.addEventListener("click", function(){
-        var after = function(){ state.pendingArchivos.splice(idx,1); renderArchivosList(); };
-        if (a.id) { api("/api/archivos/" + a.id, {method:"DELETE"}).then(after); } else { after(); }
-      });
-      chip.appendChild(rm);
-      wrap.appendChild(chip);
+  function actualizarBotonesDocsServicio(){
+    var hint = document.getElementById("svcDocsHint");
+    var botones = document.getElementById("svcDocsButtons");
+    if (!state.editingServiceId) {
+      hint.style.display = ""; botones.style.display = "none";
+      return;
+    }
+    hint.style.display = "none"; botones.style.display = "";
+    var tipo = document.getElementById("svcTipo").value;
+    var conf = SERVICE_TYPES[tipo];
+    var esTaxes = conf && conf.linea === "Taxes";
+    document.getElementById("svcFormaRow").style.display = esTaxes ? "" : "none";
+  }
+  function subirDocumentoServicio(file, categoria){
+    var status = document.getElementById("svcUploadStatus");
+    status.textContent = "Subiendo " + file.name + "…";
+    var fd = new FormData();
+    fd.append("file", file);
+    fd.append("categoria", categoria);
+    return uploadFile("/api/servicios/" + state.editingServiceId + "/documentos", fd).then(function(){
+      status.textContent = file.name + " subido.";
+    }).catch(function(e){
+      status.textContent = "";
+      alert("No se pudo subir " + file.name + ": " + e.message);
     });
   }
-  document.getElementById("svcFileInput").addEventListener("change", function(){
-    Array.prototype.forEach.call(this.files, function(f){
-      state.pendingArchivos.push({nombre:f.name, tipo:"archivo", _new:true});
-    });
-    renderArchivosList();
+  document.getElementById("svcFileInputId").addEventListener("change", function(){
+    var files = Array.prototype.slice.call(this.files);
+    var chain = Promise.resolve();
+    files.forEach(function(f){ chain = chain.then(function(){ return subirDocumentoServicio(f, "id"); }); });
+    chain.then(function(){ document.getElementById("svcUploadStatus").textContent = ""; });
+    this.value = "";
+  });
+  document.getElementById("svcFileInputForma").addEventListener("change", function(){
+    var files = Array.prototype.slice.call(this.files);
+    var chain = Promise.resolve();
+    files.forEach(function(f){ chain = chain.then(function(){ return subirDocumentoServicio(f, "forma"); }); });
+    chain.then(function(){ document.getElementById("svcUploadStatus").textContent = ""; });
     this.value = "";
   });
   function stopCamera(){
@@ -1611,7 +1718,7 @@
     var errBox = document.getElementById("camError");
     errBox.textContent = "";
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      errBox.textContent = "Este navegador no expone la cámara. Usa 'Elegir archivo' para subir la foto en su lugar.";
+      errBox.textContent = "Este navegador no expone la cámara. Usa 'Subir ID' para subir la foto en su lugar.";
       return;
     }
     navigator.mediaDevices.getUserMedia({ video: true }).then(function(stream){
@@ -1624,9 +1731,15 @@
   document.getElementById("btnCerrarCam").addEventListener("click", stopCamera);
   document.getElementById("btnCapturar").addEventListener("click", function(){
     if (!state.camStream) return;
-    state.pendingArchivos.push({nombre:"Foto - " + new Date().toLocaleTimeString() + ".jpg", tipo:"foto", _new:true});
-    renderArchivosList();
-    stopCamera();
+    var video = document.getElementById("camVideo");
+    var canvas = document.getElementById("camCanvas");
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+    canvas.toBlob(function(blob){
+      var f = new File([blob], "Foto - " + new Date().toLocaleTimeString() + ".jpg", {type:"image/jpeg"});
+      subirDocumentoServicio(f, "id").then(function(){ document.getElementById("svcUploadStatus").textContent = ""; });
+      stopCamera();
+    }, "image/jpeg", 0.92);
   });
 
   function openServicioModal(editId, clientePreset){
@@ -1661,8 +1774,8 @@
         renderEstatusPago(editing ? editing.estatus : null);
         document.getElementById("svcNotas").value = editing ? (editing.notas||"") : "";
 
-        state.pendingArchivos = editing ? editing.archivos.slice() : [];
-        renderArchivosList();
+        document.getElementById("svcUploadStatus").textContent = "";
+        actualizarBotonesDocsServicio();
         stopCamera();
 
         if (editing && editing.comisiones && editing.comisiones.length) {
@@ -1681,6 +1794,7 @@
     renderDetalleExtra();
     renderEstatusPago(document.getElementById("svcEstatus").value);
     updateComisionInfo();
+    actualizarBotonesDocsServicio();
   });
   document.getElementById("svcCobro").addEventListener("input", updateComisionInfo);
   document.getElementById("btnNuevoServicioTop").addEventListener("click", function(){ openServicioModal(null, null); });
@@ -1710,16 +1824,7 @@
       ? api("/api/servicios/" + state.editingServiceId, {method:"PUT", body: body}).then(function(){ return state.editingServiceId; })
       : api("/api/servicios", {method:"POST", body: body}).then(function(r){ return r.id; });
 
-    savePromise.then(function(servicioId){
-      var nuevos = state.pendingArchivos.filter(function(a){ return a._new; });
-      var chain = Promise.resolve();
-      nuevos.forEach(function(a){
-        chain = chain.then(function(){
-          return api("/api/archivos", {method:"POST", body: {servicio_id: servicioId, nombre: a.nombre, tipo: a.tipo}});
-        });
-      });
-      return chain;
-    }).then(function(){
+    savePromise.then(function(){
       closeModal("overlayServicio");
       stopCamera();
       renderServiciosTable();
@@ -1805,9 +1910,10 @@
         var chipsHtml = (w.config_servicios||[]).map(function(cfg){
           return '<span class="config-chip">' + cfg.tipo + ' <span class="pct">' + cfg.pct + '%</span></span>';
         }).join("");
+        var permisosHtml = (w.permisos||[]).map(function(p){ return ' <span class="perm-chip on">'+p+'</span>'; }).join("");
         card.innerHTML =
           '<div class="worker-top"><div class="worker-name"><span class="avatar">' + initials(w.nombre) + '</span>' + w.nombre +
-          (w.rol==="admin" ? ' <span class="perm-chip on">admin</span>' : '') +
+          (w.rol==="admin" ? ' <span class="perm-chip on">admin</span>' : permisosHtml) +
           (w.activo === false ? ' <span class="perm-chip" style="background:var(--crit); color:#fff;">inactivo</span>' : '') + '</div>' +
           '<div style="display:flex; align-items:center; gap:10px;"><span class="hint">' + w.correo + '</span></div></div>' +
           '<div style="margin-top:8px;">' + (chipsHtml || '<span class="hint">Sin servicios configurados</span>') + '</div>';
@@ -1859,6 +1965,10 @@
     document.getElementById("trbTipoPago").value = editing ? editing.tipo_pago : "comision";
     document.getElementById("trbSueldoFijo").value = editing ? (editing.sueldo_fijo || 0) : 0;
     document.getElementById("trbActivo").value = editing ? String(editing.activo !== false) : "true";
+    var permisosActuales = editing ? (editing.permisos || []) : [];
+    document.getElementById("trbPermisoNomina").checked = permisosActuales.indexOf("nomina") > -1;
+    document.getElementById("trbPermisoEstadisticas").checked = permisosActuales.indexOf("estadisticas") > -1;
+    document.getElementById("trbPermisoTrabajadores").checked = permisosActuales.indexOf("trabajadores") > -1;
     var rows = document.getElementById("trbConfigRows");
     rows.innerHTML = "";
     if (editing && editing.config_servicios && editing.config_servicios.length) {
@@ -1889,6 +1999,11 @@
       tipo_pago: document.getElementById("trbTipoPago").value,
       sueldo_fijo: Number(document.getElementById("trbSueldoFijo").value) || 0,
       activo: document.getElementById("trbActivo").value === "true",
+      permisos: [
+        document.getElementById("trbPermisoNomina").checked ? "nomina" : null,
+        document.getElementById("trbPermisoEstadisticas").checked ? "estadisticas" : null,
+        document.getElementById("trbPermisoTrabajadores").checked ? "trabajadores" : null,
+      ].filter(Boolean),
     };
     var btn = this;
     btn.disabled = true;

@@ -51,6 +51,16 @@ def require_admin(trabajador: Trabajador = Depends(current_trabajador)) -> Traba
     return trabajador
 
 
+def require_permiso(permiso: str):
+    """Admin siempre pasa. Un trabajador normal solo si tiene ese permiso
+    explícito en su perfil (ej. 'nomina', 'estadisticas', 'trabajadores')."""
+    def checker(trabajador: Trabajador = Depends(current_trabajador)) -> Trabajador:
+        if trabajador.rol.value == "admin" or permiso in (trabajador.permisos or []):
+            return trabajador
+        raise HTTPException(status_code=403, detail="No tienes permiso para ver esta sección.")
+    return checker
+
+
 @router.get("/auth/login")
 async def login(request: Request):
     if AUTH_DEV_MODE:
@@ -118,4 +128,5 @@ async def me(trabajador: Trabajador = Depends(current_trabajador)):
         "correo": trabajador.correo,
         "rol": trabajador.rol.value,
         "config_servicios": trabajador.config_servicios,
+        "permisos": trabajador.permisos or [],
     }

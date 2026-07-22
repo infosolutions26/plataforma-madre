@@ -128,6 +128,8 @@ class Trabajador(Base):
     tipo_pago: Mapped[str] = mapped_column(String(20), default=TipoPago.comision.value)
     sueldo_fijo: Mapped[float] = mapped_column(Numeric(10, 2), default=0)  # semanal — solo si tipo_pago es sueldo/mixto
     drive_folder_id: Mapped[Optional[str]] = mapped_column(String(120))
+    # permisos extra más allá de lo básico (Servicios+Clientes): ej. ["nomina","estadisticas","trabajadores"]
+    permisos: Mapped[list] = mapped_column(JSON, default=list)
     activo: Mapped[bool] = mapped_column(default=True)
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

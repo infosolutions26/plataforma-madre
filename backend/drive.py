@@ -133,6 +133,23 @@ def crear_subcarpeta(parent_folder_id: str, nombre: str) -> dict:
     return svc.files().create(body=meta, fields="id, name, mimeType, createdTime").execute()
 
 
+def obtener_o_crear_subcarpeta(parent_folder_id: str, nombre: str) -> str:
+    """Como crear_subcarpeta, pero primero busca si ya existe una con ese
+    nombre bajo el mismo padre — para no duplicar la carpeta del año cada
+    vez que se sube una forma nueva."""
+    svc = _get_service()
+    nombre = nombre.strip()
+    q = (
+        f"name = '{nombre}' and '{parent_folder_id}' in parents "
+        "and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    )
+    res = svc.files().list(q=q, fields="files(id)", pageSize=1).execute()
+    files = res.get("files", [])
+    if files:
+        return files[0]["id"]
+    return crear_subcarpeta(parent_folder_id, nombre)["id"]
+
+
 def listar_archivos(folder_id: str):
     svc = _get_service()
     res = svc.files().list(

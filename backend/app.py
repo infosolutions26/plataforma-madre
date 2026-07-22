@@ -18,7 +18,7 @@ from sqlalchemy.exc import DBAPIError
 
 import drive
 import recibos
-from auth import current_trabajador, require_admin, router as auth_router
+from auth import current_trabajador, require_admin, require_permiso, router as auth_router
 from catalogo import ESTATUS_LIBERA_COMISION, SERVICE_TYPES, linea_de
 from database import Base, engine, encrypt_ssn, decrypt_ssn, get_db, hash_password
 from models import (
@@ -52,6 +52,7 @@ _MIGRACIONES = [
     "ALTER TABLE pago_nomina ADD COLUMN extra_concepto VARCHAR(200)",
     "ALTER TABLE pago_nomina ADD COLUMN concepto TEXT",
     "ALTER TABLE pago_nomina ADD COLUMN drive_url VARCHAR(400)",
+    "ALTER TABLE trabajador ADD COLUMN permisos JSON DEFAULT '[]'",
 ]
 for _sql in _MIGRACIONES:
     try:
@@ -617,6 +618,46 @@ async def subir_documento_drive(
     return archivo
 
 
+@app.post("/api/servicios/{servicio_id}/documentos")
+async def subir_documento_servicio(
+    servicio_id: int, file: UploadFile = File(...), categoria: str = Form("id"),  # "id" -> raíz | "forma" -> carpeta del año
+    db: Session = Depends(get_db), _=Depends(current_trabajador),
+):
+    """Sube un documento ligado a un servicio directo a la carpeta de Drive
+    del cliente. 'id' (identificaciones) va a la carpeta raíz del cliente;
+    'forma' (formas fiscales) va a la subcarpeta del año del servicio,
+    creada automáticamente si no existe."""
+    s = db.get(Servicio, servicio_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Servicio no encontrado")
+    cliente = None
+    if s.persona_id:
+        cliente = db.get(Persona, s.persona_id)
+    elif s.empresa_id:
+        cliente = db.get(Empresa, s.empresa_id)
+    if not cliente:
+        raise HTTPException(status_code=400, detail="El servicio no tiene cliente asociado")
+    try:
+        if not cliente.drive_folder_id:
+            cliente.drive_folder_id = drive.crear_carpeta_cliente(cliente.nombre, getattr(cliente, "ssn_last4", None))
+            db.commit()
+        destino = cliente.drive_folder_id
+        if categoria == "forma":
+            anio = (s.detalle or {}).get("anio")
+            if not anio:
+                raise HTTPException(status_code=400, detail="Este servicio no tiene año de servicio definido — no se puede archivar por año.")
+            destino = drive.obtener_o_crear_subcarpeta(cliente.drive_folder_id, str(anio))
+        contenido = await file.read()
+        archivo = drive.subir_archivo(destino, file.filename, contenido, file.content_type)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"No se pudo subir a Drive: {exc}")
+    return archivo
+
+
 @app.get("/api/documentos/{file_id}/contenido")
 def contenido_documento_drive(file_id: str, _=Depends(current_trabajador)):
     """Descarga el archivo desde Drive con la cuenta de servicio y lo transmite
@@ -739,13 +780,18 @@ def historial_servicios(
     if trabajador.rol != RolUsuario.admin:
         query = query.filter(Servicio.trabajador_id == trabajador.id)
     servicios = query.order_by(Servicio.fecha.desc()).all()
-    return [
-        {
-            "id": s.id, "tipo": s.tipo, "fecha": s.fecha, "trabajador": s.trabajador.nombre,
-            "cobro": float(s.cobro), "estatus": s.estatus,
-        }
-        for s in servicios
-    ]
+    out = []
+    for s in servicios:
+        comisiones = [
+            {"trabajador": c.trabajador.nombre, "monto": float(c.monto), "estado": c.estado.value}
+            for c in s.comisiones
+        ]
+        out.append({
+            "id": s.id, "tipo": s.tipo, "linea": linea_de(s.tipo), "fecha": s.fecha,
+            "trabajador": s.trabajador.nombre, "cobro": float(s.cobro), "metodo_pago": s.metodo_pago,
+            "estatus": s.estatus, "notas": s.notas, "detalle": s.detalle or {}, "comisiones": comisiones,
+        })
+    return out
 
 
 # ---------- "mis servicios" (dashboard personal de un trabajador) ----------
@@ -899,6 +945,9 @@ def editar_servicio(
 
 # ---------- trabajadores (admin) ----------
 
+PERMISOS_VALIDOS = ["nomina", "estadisticas", "trabajadores"]
+
+
 class TrabajadorIn(BaseModel):
     nombre: str
     correo: str
@@ -908,16 +957,17 @@ class TrabajadorIn(BaseModel):
     tipo_pago: str = "comision"  # comision | sueldo | mixto
     sueldo_fijo: float = 0  # semanal — solo aplica si tipo_pago es sueldo/mixto
     activo: bool = True
+    permisos: list[str] = []  # extra además de Servicios+Clientes: nomina | estadisticas | trabajadores
 
 
 @app.get("/api/trabajadores")
-def listar_trabajadores(db: Session = Depends(get_db), _=Depends(require_admin)):
+def listar_trabajadores(db: Session = Depends(get_db), _=Depends(require_permiso("trabajadores"))):
     return [
         {
             "id": t.id, "nombre": t.nombre, "correo": t.correo, "rol": t.rol.value,
             "config_servicios": t.config_servicios, "tipo_pago": t.tipo_pago,
             "sueldo_fijo": float(t.sueldo_fijo or 0), "drive_folder_id": t.drive_folder_id,
-            "activo": t.activo,
+            "activo": t.activo, "permisos": t.permisos or [],
         }
         for t in db.query(Trabajador).order_by(Trabajador.activo.desc(), Trabajador.nombre).all()
     ]
@@ -934,11 +984,12 @@ def listar_trabajadores_basico(db: Session = Depends(get_db), _=Depends(current_
 
 
 @app.post("/api/trabajadores")
-def crear_trabajador(body: TrabajadorIn, db: Session = Depends(get_db), _=Depends(require_admin)):
+def crear_trabajador(body: TrabajadorIn, db: Session = Depends(get_db), _=Depends(require_permiso("trabajadores"))):
+    permisos = [p for p in body.permisos if p in PERMISOS_VALIDOS]
     t = Trabajador(
         nombre=body.nombre, correo=body.correo, rol=RolUsuario(body.rol), config_servicios=body.config_servicios,
         password_hash=hash_password(body.password) if body.password else None,
-        tipo_pago=body.tipo_pago, sueldo_fijo=body.sueldo_fijo, activo=body.activo,
+        tipo_pago=body.tipo_pago, sueldo_fijo=body.sueldo_fijo, activo=body.activo, permisos=permisos,
     )
     db.add(t)
     db.commit()
@@ -953,12 +1004,13 @@ def crear_trabajador(body: TrabajadorIn, db: Session = Depends(get_db), _=Depend
 
 
 @app.put("/api/trabajadores/{trabajador_id}")
-def editar_trabajador(trabajador_id: int, body: TrabajadorIn, db: Session = Depends(get_db), _=Depends(require_admin)):
+def editar_trabajador(trabajador_id: int, body: TrabajadorIn, db: Session = Depends(get_db), _=Depends(require_permiso("trabajadores"))):
     t = db.get(Trabajador, trabajador_id)
     if not t:
         raise HTTPException(status_code=404)
     t.nombre, t.correo, t.config_servicios = body.nombre, body.correo, body.config_servicios
     t.tipo_pago, t.sueldo_fijo, t.activo = body.tipo_pago, body.sueldo_fijo, body.activo
+    t.permisos = [p for p in body.permisos if p in PERMISOS_VALIDOS]
     if body.password:
         t.password_hash = hash_password(body.password)
     db.commit()
@@ -978,7 +1030,7 @@ def backfill_trabajador_drive_folders(db: Session = Depends(get_db), _=Depends(r
 
 
 @app.delete("/api/trabajadores/{trabajador_id}")
-def eliminar_trabajador(trabajador_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+def eliminar_trabajador(trabajador_id: int, db: Session = Depends(get_db), _=Depends(require_permiso("trabajadores"))):
     t = db.get(Trabajador, trabajador_id)
     if not t:
         raise HTTPException(status_code=404)
@@ -1037,7 +1089,7 @@ TRABAJADOR_PLACEHOLDER = "Histórico / Sin preparador"  # no es un trabajador re
 
 
 @app.get("/api/nomina/resumen")
-def nomina_resumen(db: Session = Depends(get_db), _=Depends(require_admin)):
+def nomina_resumen(db: Session = Depends(get_db), _=Depends(require_permiso("nomina"))):
     out = []
     q = db.query(Trabajador).filter(Trabajador.activo, Trabajador.nombre != TRABAJADOR_PLACEHOLDER)
     for t in q.order_by(Trabajador.nombre).all():
@@ -1063,7 +1115,7 @@ def nomina_resumen(db: Session = Depends(get_db), _=Depends(require_admin)):
 
 
 @app.get("/api/nomina/{trabajador_id}/detalle")
-def nomina_detalle(trabajador_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+def nomina_detalle(trabajador_id: int, db: Session = Depends(get_db), _=Depends(require_permiso("nomina"))):
     t = db.get(Trabajador, trabajador_id)
     if not t:
         raise HTTPException(status_code=404)
@@ -1092,7 +1144,7 @@ class PagoIn(BaseModel):
 
 
 @app.post("/api/nomina/pagar")
-def marcar_pagado(body: PagoIn, db: Session = Depends(get_db), trabajador_admin: Trabajador = Depends(require_admin)):
+def marcar_pagado(body: PagoIn, db: Session = Depends(get_db), trabajador_admin: Trabajador = Depends(require_permiso("nomina"))):
     t = db.get(Trabajador, body.trabajador_id)
     if not t:
         raise HTTPException(status_code=404, detail="Trabajador no encontrado")
@@ -1143,7 +1195,7 @@ def marcar_pagado(body: PagoIn, db: Session = Depends(get_db), trabajador_admin:
 @app.get("/api/nomina/{trabajador_id}/historial")
 def nomina_historial_trabajador(
     trabajador_id: int, fecha_inicio: Optional[date] = None, fecha_fin: Optional[date] = None,
-    db: Session = Depends(get_db), _=Depends(require_admin),
+    db: Session = Depends(get_db), _=Depends(require_permiso("nomina")),
 ):
     q = db.query(PagoNomina).filter(PagoNomina.trabajador_id == trabajador_id, PagoNomina.tipo == "pago")
     if fecha_inicio:
@@ -1177,7 +1229,7 @@ def nomina_historial_trabajador(
 @app.get("/api/nomina/dashboard")
 def nomina_dashboard(
     fecha_inicio: Optional[date] = None, fecha_fin: Optional[date] = None,
-    db: Session = Depends(get_db), _=Depends(require_admin),
+    db: Session = Depends(get_db), _=Depends(require_permiso("nomina")),
 ):
     q = db.query(PagoNomina).filter(PagoNomina.tipo == "pago")
     if fecha_inicio:
@@ -1217,7 +1269,7 @@ def nomina_dashboard(
 
 
 @app.get("/api/config/{clave}")
-def obtener_config(clave: str, db: Session = Depends(get_db), _=Depends(require_admin)):
+def obtener_config(clave: str, db: Session = Depends(get_db), _=Depends(require_permiso("nomina"))):
     c = db.get(Configuracion, clave)
     return {"clave": clave, "valor": c.valor if c else None}
 
@@ -1227,7 +1279,7 @@ class ConfigIn(BaseModel):
 
 
 @app.put("/api/config/{clave}")
-def guardar_config(clave: str, body: ConfigIn, db: Session = Depends(get_db), _=Depends(require_admin)):
+def guardar_config(clave: str, body: ConfigIn, db: Session = Depends(get_db), _=Depends(require_permiso("nomina"))):
     c = db.get(Configuracion, clave)
     if c:
         c.valor = body.valor
@@ -1315,7 +1367,7 @@ def importar_pagos_historicos(body: PagoHistoricoBatchIn, db: Session = Depends(
 @app.get("/api/estadisticas")
 def estadisticas(
     fecha_inicio: Optional[date] = None, fecha_fin: Optional[date] = None,
-    tipo: Optional[str] = None, db: Session = Depends(get_db), _=Depends(require_admin),
+    tipo: Optional[str] = None, db: Session = Depends(get_db), _=Depends(require_permiso("estadisticas")),
 ):
     q = db.query(Servicio)
     if fecha_inicio:
@@ -1369,7 +1421,7 @@ def buscar_servicios(
     fecha_inicio: Optional[date] = None, fecha_fin: Optional[date] = None,
     tipo_cita: Optional[str] = None, metodo_pago: Optional[str] = None,
     estatus: Optional[str] = None, estatus_comision: Optional[str] = None,  # pendiente | pagada
-    db: Session = Depends(get_db), _=Depends(require_admin),
+    db: Session = Depends(get_db), _=Depends(require_permiso("estadisticas")),
 ):
     """Filtros combinables para armar cualquier tabla de servicios (ej. 'Taxes
     1040 de Erik de tal fecha a tal fecha, de cita remota, pendientes de pago
