@@ -1189,6 +1189,41 @@ def reset_saldos_nomina(db: Session = Depends(get_db), _=Depends(require_admin))
     return {"ajustes": ajustes}
 
 
+class PagoHistoricoIn(BaseModel):
+    trabajador_id: int
+    fecha: date
+    sueldo: float = 0
+    comision: float = 0
+    extra: float = 0
+    extra_concepto: Optional[str] = None
+    concepto: Optional[str] = None
+
+
+class PagoHistoricoBatchIn(BaseModel):
+    pagos: list[PagoHistoricoIn]
+
+
+@app.post("/api/_importar_pagos_historicos")
+def importar_pagos_historicos(body: PagoHistoricoBatchIn, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Carga en bloque pagos de nómina reales de antes de esta plataforma
+    (de las hojas de cálculo históricas) como registros independientes —
+    no genera recibo ni se vincula a Comision (no hay servicio individual
+    detrás de un pago histórico de nómina en bloque). Endpoint temporal."""
+    creados = 0
+    for p in body.pagos:
+        monto = round(p.sueldo + p.comision + p.extra, 2)
+        if monto <= 0:
+            continue
+        db.add(PagoNomina(
+            fecha=p.fecha, trabajador_id=p.trabajador_id, monto=monto, n_servicios=0,
+            tipo="pago", sueldo_incluido=p.sueldo, comisiones_incluidas=p.comision,
+            extra_monto=p.extra, extra_concepto=p.extra_concepto, concepto=p.concepto,
+        ))
+        creados += 1
+    db.commit()
+    return {"creados": creados}
+
+
 # ---------- estadísticas (admin) ----------
 #
 # Reemplaza el viejo sistema de "temporadas" (nombres auto-generados a partir
