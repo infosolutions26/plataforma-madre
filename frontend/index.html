@@ -921,6 +921,7 @@
     searchTimer = setTimeout(function(){ renderClientTable(v); }, 200);
   });
 
+  var clientTableSeq = 0;
   function renderClientTable(filterText){
     var u = state.currentUser;
     var isAdmin = u.rol === "admin";
@@ -937,7 +938,9 @@
       subEl.textContent = "Solo los clientes a los que les has hecho un servicio — clic en una fila para ver el detalle y editar.";
       statsRow.style.display = "grid";
     }
+    var mySeq = ++clientTableSeq;
     return api("/api/clientes" + (q ? ("?q=" + encodeURIComponent(q)) : "")).then(function(lista){
+      if (mySeq !== clientTableSeq) return; // respuesta obsoleta (una búsqueda más reciente ya se disparó) — ignorar
       if (!isAdmin) renderMisStats(lista.length);
       var tbody = document.getElementById("clientTableBody");
       tbody.innerHTML = "";
