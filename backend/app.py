@@ -272,6 +272,65 @@ def normalizar_metodo_tipocita(db: Session = Depends(get_db), _=Depends(require_
     return {"ok": True, "metodo_pago_corregidos": n_metodo, "tipo_cita_corregidos": n_cita}
 
 
+# Estatus heredados de datos viejos, capturados de forma muy informal (notas
+# de cómo se cobró, montos sueltos, etc. en vez de un estatus limpio). Mapeo
+# hecho a mano, valor por valor — no es un normalizador genérico porque
+# adivinar mal aquí dispararía comisión sobre dinero que no se cobró.
+# Confirmado con el dueño del negocio: todo lo que no diga explícitamente
+# "pendiente" o "cancelado" se trata como cobrado.
+ESTATUS_LEGACY_A_PAGADO = [
+    "Credit Card Chase", "CASH", "Cash", "cash", "Chase Credit Card", "Chase Card", "Card Chase",
+    "CREDIT CHASE", "CHASE Credit", "CREdit Card Chase",
+    "$200", "$180", "$250", "$360", "180", "225", "$300", "230", "$260", "$225",
+    "STA BARBARA 2023", "BMO SAVINGS", "BMO REEMBOLSO", "BMO 03/20/2024", "$700 STA BARBARA",
+    "$300 FREETAX CITIBANK", "225 STA BARBARA", "$350 BANCO FREETAX", "$600 BANCO FREETAX",
+    "$180 BANCO FREETAX", "BANCO BOFA C&C",
+    "PAGO CON REFERENCIAS", "10 REFERENCIAS",
+    "$40 CASH $100 BANCO", "$200 ZELLE $150 BANCO",
+    "pago taxes y conta x zelle en partes", "$250 / Pago en dos partes",
+    "$75 EXTENSION", "EXTENSION",
+    "HIJA DE ARTURO PELALLO", "FALTAN FORMAS",
+]
+ESTATUS_LEGACY_A_PENDIENTE = [
+    "Pendiente", "$160 PENDIENTE VIERNES", "$180 PENDIENTE", "PENDIENTE  $200", "PENDIENTE -  $250",
+    "PENDIENTE $50 - $350 / 1120 - $250", "$220 PENDIENTE", "$150 PENDIENTE", "PENDIENTE $220",
+    "PENDIENTE $50 - $300",
+]
+ESTATUS_LEGACY_A_CANCELADO = ["CANCELADO"]
+
+ESTATUS_NORMALIZA = {}
+for _v in ESTATUS_LEGACY_A_PAGADO:
+    ESTATUS_NORMALIZA[_v.strip().lower()] = "Pagado"
+for _v in ESTATUS_LEGACY_A_PENDIENTE:
+    ESTATUS_NORMALIZA[_v.strip().lower()] = "Pendiente de pago"
+for _v in ESTATUS_LEGACY_A_CANCELADO:
+    ESTATUS_NORMALIZA[_v.strip().lower()] = "Cancelado"
+
+
+@app.post("/api/_normalizar_estatus_legacy")
+def normalizar_estatus_legacy(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Limpia los ~100 valores de estatus heredados de la captura informal de
+    antes (notas de cobro, montos sueltos) a los 6 valores reales del
+    catálogo. Mapeo explícito valor por valor, confirmado con el dueño del
+    negocio — nada se adivina. Idempotente. Endpoint temporal."""
+    cambios = {"Pagado": 0, "Pendiente de pago": 0, "Cancelado": 0}
+    sin_mapear = {}
+    for s in db.query(Servicio).all():
+        if not s.estatus:
+            continue
+        key = s.estatus.strip().lower()
+        if key in ("pagado", "pendiente de pago", "cortesía", "banco", "banco pagado", "cancelado"):
+            continue  # ya es un valor válido del catálogo
+        nuevo = ESTATUS_NORMALIZA.get(key)
+        if nuevo:
+            s.estatus = nuevo
+            cambios[nuevo] += 1
+        else:
+            sin_mapear[s.estatus] = sin_mapear.get(s.estatus, 0) + 1
+    db.commit()
+    return {"cambios": cambios, "sin_mapear": sin_mapear}
+
+
 class DriveMatchIn(BaseModel):
     nombre: str
     ssn: Optional[str] = None

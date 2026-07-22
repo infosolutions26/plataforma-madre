@@ -937,8 +937,8 @@
     ]}
   };
   var ALL_TIPOS = Object.keys(SERVICE_TYPES);
-  var ESTATUS_PAGO_BASE = ["Pendiente de pago", "Pagado"];
-  var ESTATUS_PAGO_TAXES = ["Pendiente de pago", "Pagado", "Cortesía", "Banco", "Banco Pagado"];
+  var ESTATUS_PAGO_BASE = ["Pendiente de pago", "Pagado", "Cancelado"];
+  var ESTATUS_PAGO_TAXES = ["Pendiente de pago", "Pagado", "Cortesía", "Banco", "Banco Pagado", "Cancelado"];
   // Estatus que cuentan como "el cliente ya pagó" — habilitan la comisión hacia nómina.
   var ESTATUS_LIBERA_COMISION = ["Pagado", "Banco Pagado"];
   var SISTEMA_CONTAS_URL = "https://contas-2f4b.onrender.com/";
@@ -2103,7 +2103,7 @@
 
   // ---------- stats / periodos ----------
   var METODOS_PAGO = ["Zelle","Cash","Card","Card - Square","Card - Chase","Card - Solutions","Banco","Banco Sta Barbara","Cortesía / Referidos"];
-  var ESTATUS_PAGO_TODOS = ["Pendiente de pago","Pagado","Cortesía","Banco","Banco Pagado"];
+  var ESTATUS_PAGO_TODOS = ["Pendiente de pago","Pagado","Cortesía","Banco","Banco Pagado","Cancelado"];
 
   function poblarSelect(sel, opciones){
     opciones.forEach(function(o){
