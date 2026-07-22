@@ -1,10 +1,12 @@
+import io
 import os
 import pathlib
 from datetime import date, datetime
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -14,6 +16,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+import drive
 from auth import current_trabajador, require_admin, router as auth_router
 from catalogo import SERVICE_TYPES, linea_de
 from database import Base, engine, encrypt_ssn, decrypt_ssn, get_db, hash_password
@@ -468,6 +471,82 @@ def listar_archivos_cliente(tipo: str, cliente_id: int, db: Session = Depends(ge
     col = Archivo.persona_id if tipo == "persona" else Archivo.empresa_id
     archivos = db.query(Archivo).filter(col == cliente_id).order_by(Archivo.creado_en.desc()).all()
     return [{"id": a.id, "nombre": a.nombre, "tipo": a.tipo, "drive_url": a.drive_url} for a in archivos]
+
+
+def _get_cliente(tipo: str, cliente_id: int, db: Session):
+    modelo = Persona if tipo == "persona" else Empresa
+    cliente = db.get(modelo, cliente_id)
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    return cliente
+
+
+@app.get("/api/clientes/{tipo}/{cliente_id}/documentos")
+def listar_documentos_drive(tipo: str, cliente_id: int, db: Session = Depends(get_db), _=Depends(current_trabajador)):
+    """Lista en vivo los archivos dentro de la carpeta de Drive del cliente
+    (viejos y nuevos conviven en la misma carpeta)."""
+    cliente = _get_cliente(tipo, cliente_id, db)
+    if not cliente.drive_folder_id:
+        return {"tiene_carpeta": False, "archivos": []}
+    archivos = drive.listar_archivos(cliente.drive_folder_id)
+    return {"tiene_carpeta": True, "archivos": archivos}
+
+
+@app.post("/api/clientes/{tipo}/{cliente_id}/documentos")
+async def subir_documento_drive(
+    tipo: str, cliente_id: int, file: UploadFile = File(...),
+    db: Session = Depends(get_db), _=Depends(current_trabajador),
+):
+    cliente = _get_cliente(tipo, cliente_id, db)
+    if not cliente.drive_folder_id:
+        cliente.drive_folder_id = drive.crear_carpeta_cliente(cliente.nombre, getattr(cliente, "ssn_last4", None))
+        db.commit()
+    contenido = await file.read()
+    archivo = drive.subir_archivo(cliente.drive_folder_id, file.filename, contenido, file.content_type)
+    return archivo
+
+
+@app.get("/api/documentos/{file_id}/contenido")
+def contenido_documento_drive(file_id: str, _=Depends(current_trabajador)):
+    """Descarga el archivo desde Drive con la cuenta de servicio y lo transmite
+    al navegador — así se puede ver embebido en la plataforma sin que el
+    archivo sea público ni depender del acceso de Drive del trabajador."""
+    contenido, mimetype, nombre = drive.obtener_contenido(file_id)
+    return StreamingResponse(
+        io.BytesIO(contenido), media_type=mimetype,
+        headers={"Content-Disposition": f'inline; filename="{nombre}"'},
+    )
+
+
+@app.delete("/api/documentos/{file_id}")
+def eliminar_documento_drive(file_id: str, _=Depends(current_trabajador)):
+    drive.eliminar_archivo(file_id)
+    return {"ok": True}
+
+
+@app.post("/api/_backfill_drive_folder_ids")
+def backfill_drive_folder_ids(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Rellena Persona/Empresa.drive_folder_id a partir de los Archivo ya
+    asociados en el lote masivo (su drive_url apunta a la carpeta completa
+    del cliente, no a un archivo individual). Endpoint temporal, se puede
+    quitar después."""
+    actualizados = 0
+    for a in db.query(Archivo).filter(Archivo.drive_url.isnot(None)).all():
+        folder_id = drive.extraer_folder_id(a.drive_url)
+        if not folder_id:
+            continue
+        if a.persona_id:
+            p = db.get(Persona, a.persona_id)
+            if p and not p.drive_folder_id:
+                p.drive_folder_id = folder_id
+                actualizados += 1
+        elif a.empresa_id:
+            e = db.get(Empresa, a.empresa_id)
+            if e and not e.drive_folder_id:
+                e.drive_folder_id = folder_id
+                actualizados += 1
+    db.commit()
+    return {"actualizados": actualizados}
 
 
 class ArchivoIn(BaseModel):

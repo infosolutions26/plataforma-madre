@@ -752,6 +752,20 @@
   </div>
 </div>
 
+<!-- ============ MODAL: vista previa de documento ============ -->
+<div class="overlay" id="overlayDocPreview">
+  <div class="modal" style="max-width:820px;">
+    <div class="modal-head"><h2 id="docPreviewTitle">Documento</h2><button class="btn ghost small" data-close>✕</button></div>
+    <div class="modal-body">
+      <div id="docPreviewBody" style="min-height:200px; display:flex; align-items:center; justify-content:center;"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="btnEliminarDoc" style="color:#b3372c;">Eliminar</button>
+      <a class="btn primary" id="btnDescargarDoc" href="#" target="_blank" rel="noopener">Descargar</a>
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
   "use strict";
@@ -842,6 +856,18 @@
         });
       }
       if (res.status === 204) return null;
+      return res.json();
+    });
+  }
+
+  function uploadFile(path, formData){
+    return fetch(path, { credentials: "same-origin", method: "POST", body: formData }).then(function(res){
+      if (res.status === 401) { showLoginGate(); throw new Error("no-auth"); }
+      if (!res.ok) {
+        return res.json().catch(function(){ return {}; }).then(function(j){
+          throw new Error(j.detail || (res.status + " " + res.statusText));
+        });
+      }
       return res.json();
     });
   }
@@ -1026,38 +1052,74 @@
     }).catch(function(e){ if (e.message !== "no-auth") alert("No se pudo cargar el cliente: " + e.message); });
   }
 
+  function fileIcon(mimeType){
+    if (!mimeType) return "▤";
+    if (mimeType.indexOf("image/") === 0) return "🖼";
+    if (mimeType === "application/pdf") return "📄";
+    return "▤";
+  }
+  function fmtBytes(n){
+    n = parseInt(n, 10);
+    if (!n) return "";
+    if (n < 1024) return n + " B";
+    if (n < 1024*1024) return Math.round(n/1024) + " KB";
+    return (n/(1024*1024)).toFixed(1) + " MB";
+  }
   function renderProfFiles(){
     var files = document.getElementById("profFiles");
     files.innerHTML = '<p class="hint">Cargando…</p>';
-    api("/api/clientes/" + state.currentProfile.tipo + "/" + state.currentProfile.id + "/archivos").then(function(archivos){
+    var tipo = state.currentProfile.tipo, id = state.currentProfile.id;
+    api("/api/clientes/" + tipo + "/" + id + "/documentos").then(function(res){
       files.innerHTML = "";
-      if (!archivos.length) { files.innerHTML = '<p class="hint">Sin archivos todavía.</p>'; return; }
-      archivos.forEach(function(f){
+      if (!res.tiene_carpeta || !res.archivos.length) {
+        files.innerHTML = '<p class="hint">' + (res.tiene_carpeta ? "Sin documentos todavía." : "Aún no tiene carpeta en Drive — se crea automáticamente al subir el primer documento.") + '</p>';
+        return;
+      }
+      res.archivos.forEach(function(f){
         var r = el("div","file-row");
-        var nameHtml = f.drive_url
-          ? '<a class="fname" href="'+f.drive_url+'" target="_blank" rel="noopener">'+f.nombre+'</a>'
-          : '<span class="fname">'+f.nombre+'</span>';
-        r.innerHTML = '<span class="file-ic">' + (f.tipo === "foto" ? "📷" : "▤") + '</span>' +
-          nameHtml + '<span class="fmeta">'+(f.tipo==="foto"?"Foto tomada en la plataforma":(f.drive_url?"Abrir en Drive":"Sin archivo adjunto"))+'</span>';
-        var rm = el("button","rm-btn","✕"); rm.type="button"; rm.style.fontSize="12px";
-        rm.addEventListener("click", function(){ api("/api/archivos/" + f.id, {method:"DELETE"}).then(renderProfFiles); });
-        r.appendChild(rm);
+        r.style.cursor = "pointer";
+        r.innerHTML = '<span class="file-ic">' + fileIcon(f.mimeType) + '</span>' +
+          '<span class="fname">'+f.name+'</span><span class="fmeta">'+fmtBytes(f.size)+'</span>';
+        r.addEventListener("click", function(){ openDocPreview(f); });
         files.appendChild(r);
       });
     });
   }
+  function openDocPreview(f){
+    document.getElementById("docPreviewTitle").textContent = f.name;
+    var body = document.getElementById("docPreviewBody");
+    var src = "/api/documentos/" + f.id + "/contenido";
+    if (f.mimeType && f.mimeType.indexOf("image/") === 0) {
+      body.innerHTML = '<img src="'+src+'" style="max-width:100%; max-height:70vh; border-radius:8px;">';
+    } else if (f.mimeType === "application/pdf") {
+      body.innerHTML = '<iframe src="'+src+'" style="width:100%; height:70vh; border:none; border-radius:8px;"></iframe>';
+    } else {
+      body.innerHTML = '<p class="hint">Este tipo de archivo no se puede previsualizar aquí — usa "Descargar".</p>';
+    }
+    document.getElementById("btnDescargarDoc").href = src;
+    document.getElementById("btnEliminarDoc").onclick = function(){
+      if (!confirm('¿Eliminar "' + f.name + '" de Drive? No se puede deshacer.')) return;
+      api("/api/documentos/" + f.id, {method:"DELETE"}).then(function(){
+        closeModal("overlayDocPreview");
+        renderProfFiles();
+      });
+    };
+    openModal("overlayDocPreview");
+  }
   document.getElementById("profFileInput").addEventListener("change", function(){
     var files = Array.prototype.slice.call(this.files);
     var input = this;
+    var tipo = state.currentProfile.tipo, id = state.currentProfile.id;
     var chain = Promise.resolve();
     files.forEach(function(f){
       chain = chain.then(function(){
-        var body = { nombre: f.name, tipo: "archivo" };
-        body[state.currentProfile.tipo + "_id"] = state.currentProfile.id;
-        return api("/api/archivos", {method:"POST", body: body});
+        var fd = new FormData();
+        fd.append("file", f);
+        return uploadFile("/api/clientes/" + tipo + "/" + id + "/documentos", fd);
       });
     });
-    chain.then(function(){ input.value = ""; renderProfFiles(); });
+    chain.then(function(){ input.value = ""; renderProfFiles(); })
+      .catch(function(e){ alert("No se pudo subir: " + e.message); input.value = ""; });
   });
   function stopCameraProfile(){
     if (state.camStreamProfile) { state.camStreamProfile.getTracks().forEach(function(t){ t.stop(); }); state.camStreamProfile = null; }
@@ -1083,12 +1145,19 @@
   document.getElementById("btnCerrarCamProfile").addEventListener("click", stopCameraProfile);
   document.getElementById("btnCapturarProfile").addEventListener("click", function(){
     if (!state.camStreamProfile) return;
-    var body = { nombre: "Foto - " + new Date().toLocaleTimeString() + ".jpg", tipo: "foto" };
-    body[state.currentProfile.tipo + "_id"] = state.currentProfile.id;
-    api("/api/archivos", {method:"POST", body: body}).then(function(){
-      renderProfFiles();
-      stopCameraProfile();
-    });
+    var video = document.getElementById("camVideoProfile");
+    var canvas = document.getElementById("camCanvasProfile");
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+    var tipo = state.currentProfile.tipo, id = state.currentProfile.id;
+    canvas.toBlob(function(blob){
+      var fd = new FormData();
+      fd.append("file", blob, "Foto - " + new Date().toLocaleTimeString() + ".jpg");
+      uploadFile("/api/clientes/" + tipo + "/" + id + "/documentos", fd).then(function(){
+        renderProfFiles();
+        stopCameraProfile();
+      }).catch(function(e){ alert("No se pudo subir la foto: " + e.message); });
+    }, "image/jpeg", 0.92);
   });
 
   function renderProfileServices(){
