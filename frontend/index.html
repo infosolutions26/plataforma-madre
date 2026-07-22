@@ -492,11 +492,13 @@
             </div>
             <div class="panel">
               <h2>Archivos (Google Drive)</h2>
+              <div id="profFilesBreadcrumb" class="hint" style="margin-bottom:6px;"></div>
               <div id="profFiles"></div>
               <div class="attach-row" style="margin-top:10px;">
                 <label class="btn small" for="profFileInput">📎 Elegir archivo</label>
                 <input type="file" id="profFileInput" style="display:none;" accept="image/*,.pdf" multiple>
                 <button class="btn small" id="btnTomarFotoProfile" type="button">📷 Tomar foto</button>
+                <button class="btn small" id="btnNuevaCarpetaProfile" type="button">📁 Nueva carpeta</button>
               </div>
               <div class="cam-panel" id="camPanelProfile">
                 <video id="camVideoProfile" autoplay playsinline></video>
@@ -632,23 +634,38 @@
 
           <div class="panel">
             <h2>Ingresos por línea de servicio</h2>
-            <div id="barLineas"></div>
+            <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+              <div id="barLineas" style="flex:1; min-width:220px;"></div>
+              <div id="pieLineas" style="display:flex; gap:14px; align-items:center;"></div>
+            </div>
           </div>
           <div class="panel">
             <h2>Ingresos por preparador</h2>
-            <div id="barTrabajadores"></div>
+            <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+              <div id="barTrabajadores" style="flex:1; min-width:220px;"></div>
+              <div id="pieTrabajadores" style="display:flex; gap:14px; align-items:center;"></div>
+            </div>
           </div>
           <div class="panel">
             <h2>Tipo de cita</h2>
-            <div id="barTipoCita"></div>
+            <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+              <div id="barTipoCita" style="flex:1; min-width:220px;"></div>
+              <div id="pieTipoCita" style="display:flex; gap:14px; align-items:center;"></div>
+            </div>
           </div>
           <div class="panel">
             <h2>Método de pago</h2>
-            <div id="barMetodoPago"></div>
+            <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+              <div id="barMetodoPago" style="flex:1; min-width:220px;"></div>
+              <div id="pieMetodoPago" style="display:flex; gap:14px; align-items:center;"></div>
+            </div>
           </div>
           <div class="panel">
             <h2>Estatus de pago</h2>
-            <div id="barEstatus"></div>
+            <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+              <div id="barEstatus" style="flex:1; min-width:220px;"></div>
+              <div id="pieEstatus" style="display:flex; gap:14px; align-items:center;"></div>
+            </div>
           </div>
 
           <div class="panel">
@@ -1119,6 +1136,7 @@
   // ---------- profile ----------
   function openProfile(tipo, id){
     state.currentProfile = {tipo: tipo, id: id};
+    state.docFolderStack = [];
     api("/api/clientes/" + tipo + "/" + id).then(function(c){
       document.getElementById("profAvatar").textContent = tipo==="empresa" ? "⌂" : initials(c.nombre);
       document.getElementById("profAvatar").className = "avatar" + (tipo==="empresa" ? " emp" : "");
@@ -1177,11 +1195,31 @@
     if (n < 1024*1024) return Math.round(n/1024) + " KB";
     return (n/(1024*1024)).toFixed(1) + " MB";
   }
+  function isFolder(mimeType){ return mimeType === "application/vnd.google-apps.folder"; }
+  state.docFolderStack = []; // [{id, name}, ...] — vacío = raíz del cliente
+  function renderBreadcrumb(){
+    var wrap = document.getElementById("profFilesBreadcrumb");
+    var partes = ['<a href="#" data-idx="-1">Raíz</a>'].concat(
+      state.docFolderStack.map(function(f, i){ return '<a href="#" data-idx="'+i+'">'+f.name+'</a>'; })
+    );
+    wrap.innerHTML = partes.join(" / ");
+    wrap.querySelectorAll("a").forEach(function(a){
+      a.addEventListener("click", function(e){
+        e.preventDefault();
+        var idx = Number(a.dataset.idx);
+        state.docFolderStack = idx < 0 ? [] : state.docFolderStack.slice(0, idx + 1);
+        renderProfFiles();
+      });
+    });
+  }
   function renderProfFiles(){
     var files = document.getElementById("profFiles");
     files.innerHTML = '<p class="hint">Cargando…</p>';
+    renderBreadcrumb();
     var tipo = state.currentProfile.tipo, id = state.currentProfile.id;
-    api("/api/clientes/" + tipo + "/" + id + "/documentos").then(function(res){
+    var folderActual = state.docFolderStack.length ? state.docFolderStack[state.docFolderStack.length - 1].id : null;
+    var url = "/api/clientes/" + tipo + "/" + id + "/documentos" + (folderActual ? ("?folder_id=" + encodeURIComponent(folderActual)) : "");
+    api(url).then(function(res){
       files.innerHTML = "";
       if (!res.tiene_carpeta || !res.archivos.length) {
         files.innerHTML = '<p class="hint">' + (res.tiene_carpeta ? "Sin documentos todavía." : "Aún no tiene carpeta en Drive — se crea automáticamente al subir el primer documento.") + '</p>';
@@ -1190,13 +1228,26 @@
       res.archivos.forEach(function(f){
         var r = el("div","file-row");
         r.style.cursor = "pointer";
-        r.innerHTML = '<span class="file-ic">' + fileIcon(f.mimeType) + '</span>' +
-          '<span class="fname">'+f.name+'</span><span class="fmeta">'+fmtBytes(f.size)+'</span>';
-        r.addEventListener("click", function(){ openDocPreview(f); });
+        var folder = isFolder(f.mimeType);
+        r.innerHTML = '<span class="file-ic">' + (folder ? "📁" : fileIcon(f.mimeType)) + '</span>' +
+          '<span class="fname">'+f.name+'</span><span class="fmeta">'+(folder ? "Carpeta" : fmtBytes(f.size))+'</span>';
+        r.addEventListener("click", function(){
+          if (folder) { state.docFolderStack.push({id: f.id, name: f.name}); renderProfFiles(); }
+          else { openDocPreview(f); }
+        });
         files.appendChild(r);
       });
     });
   }
+  document.getElementById("btnNuevaCarpetaProfile").addEventListener("click", function(){
+    var nombre = prompt("Nombre de la carpeta nueva (ej. el año):");
+    if (!nombre || !nombre.trim()) return;
+    var tipo = state.currentProfile.tipo, id = state.currentProfile.id;
+    var parent = state.docFolderStack.length ? state.docFolderStack[state.docFolderStack.length - 1].id : null;
+    api("/api/clientes/" + tipo + "/" + id + "/carpetas", {method:"POST", body: {nombre: nombre.trim(), parent_folder_id: parent}})
+      .then(function(){ renderProfFiles(); })
+      .catch(function(e){ alert("No se pudo crear la carpeta: " + e.message); });
+  });
   function openDocPreview(f){
     document.getElementById("docPreviewTitle").textContent = f.name;
     var body = document.getElementById("docPreviewBody");
@@ -1222,11 +1273,13 @@
     var files = Array.prototype.slice.call(this.files);
     var input = this;
     var tipo = state.currentProfile.tipo, id = state.currentProfile.id;
+    var folderActual = state.docFolderStack.length ? state.docFolderStack[state.docFolderStack.length - 1].id : null;
     var chain = Promise.resolve();
     files.forEach(function(f){
       chain = chain.then(function(){
         var fd = new FormData();
         fd.append("file", f);
+        if (folderActual) fd.append("folder_id", folderActual);
         return uploadFile("/api/clientes/" + tipo + "/" + id + "/documentos", fd);
       });
     });
@@ -1262,9 +1315,11 @@
     canvas.width = video.videoWidth; canvas.height = video.videoHeight;
     canvas.getContext("2d").drawImage(video, 0, 0);
     var tipo = state.currentProfile.tipo, id = state.currentProfile.id;
+    var folderActual = state.docFolderStack.length ? state.docFolderStack[state.docFolderStack.length - 1].id : null;
     canvas.toBlob(function(blob){
       var fd = new FormData();
       fd.append("file", blob, "Foto - " + new Date().toLocaleTimeString() + ".jpg");
+      if (folderActual) fd.append("folder_id", folderActual);
       uploadFile("/api/clientes/" + tipo + "/" + id + "/documentos", fd).then(function(){
         renderProfFiles();
         stopCameraProfile();
@@ -2001,6 +2056,29 @@
       wrap.appendChild(r);
     });
   }
+  var PIE_COLORS = ["#6b9bd8","#8fc9a0","#e0b872","#d888a0","#a08fd8","#72c9c9","#d8a072","#9ad888","#c9a0d8","#a0c9d8"];
+  function renderPie(elId, dataObj, emptyMsg){
+    var wrap = document.getElementById(elId);
+    var keys = Object.keys(dataObj);
+    var total = keys.reduce(function(a,k){ return a + dataObj[k]; }, 0);
+    if (!keys.length || !total) { wrap.innerHTML = emptyMsg ? '<p class="hint">'+emptyMsg+'</p>' : ""; return; }
+    keys.sort(function(a,b){ return dataObj[b]-dataObj[a]; });
+    var acc = 0;
+    var stops = keys.map(function(k, i){
+      var pct = dataObj[k] / total * 100;
+      var start = acc; acc += pct;
+      return PIE_COLORS[i % PIE_COLORS.length] + " " + start.toFixed(2) + "% " + acc.toFixed(2) + "%";
+    }).join(", ");
+    var legend = keys.map(function(k, i){
+      var pct = (dataObj[k] / total * 100).toFixed(1);
+      return '<div style="display:flex; align-items:center; gap:6px; font-size:11.5px; white-space:nowrap;">' +
+        '<span style="width:10px; height:10px; border-radius:2px; background:'+PIE_COLORS[i % PIE_COLORS.length]+'; display:inline-block; flex:0 0 auto;"></span>' +
+        k + ' (' + pct + '%)</div>';
+    }).join("");
+    wrap.innerHTML =
+      '<div style="width:96px; height:96px; border-radius:50%; flex:0 0 auto; background: conic-gradient('+stops+');"></div>' +
+      '<div style="display:flex; flex-direction:column; gap:4px;">'+legend+'</div>';
+  }
   function cargarCatalogosStats(){
     if (state.statsCatalogosCargados) return Promise.resolve();
     state.statsCatalogosCargados = true;
@@ -2050,6 +2128,11 @@
       renderBar("barTipoCita", data.por_tipo_cita, "Sin datos de tipo de cita en este rango.", false);
       renderBar("barMetodoPago", data.por_metodo_pago, "Sin datos de método de pago en este rango.", false);
       renderBar("barEstatus", data.por_estatus, "Sin datos de estatus en este rango.", false);
+      renderPie("pieLineas", data.por_linea);
+      renderPie("pieTrabajadores", data.por_trabajador);
+      renderPie("pieTipoCita", data.por_tipo_cita);
+      renderPie("pieMetodoPago", data.por_metodo_pago);
+      renderPie("pieEstatus", data.por_estatus);
     });
   }
 
@@ -2094,6 +2177,15 @@
     a.href = URL.createObjectURL(blob);
     a.download = "servicios_" + new Date().toISOString().slice(0,10) + ".csv";
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  });
+
+  // Un clic en cualquier parte de un campo de fecha abre el calendario nativo,
+  // en vez de tener que escribir el día o darle justo al iconito.
+  document.addEventListener("click", function(e){
+    var input = e.target.closest('input[type="date"]');
+    if (input && input.showPicker) {
+      try { input.showPicker(); } catch (err) {}
+    }
   });
 
   // ---------- init ----------

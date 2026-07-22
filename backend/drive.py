@@ -133,6 +133,14 @@ def crear_carpeta_trabajador(nombre: str) -> str:
     return folder_id
 
 
+def crear_subcarpeta(parent_folder_id: str, nombre: str) -> dict:
+    """Subcarpeta genérica dentro de cualquier carpeta ya existente (ej. una
+    carpeta de cliente) — para separar documentos por año."""
+    svc = _get_service()
+    meta = {"name": nombre.strip(), "mimeType": "application/vnd.google-apps.folder", "parents": [parent_folder_id]}
+    return svc.files().create(body=meta, fields="id, name, mimeType, createdTime").execute()
+
+
 def listar_archivos(folder_id: str):
     svc = _get_service()
     res = svc.files().list(

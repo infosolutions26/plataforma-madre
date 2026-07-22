@@ -4,7 +4,7 @@ import pathlib
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -499,19 +499,46 @@ def _get_cliente(tipo: str, cliente_id: int, db: Session):
 
 
 @app.get("/api/clientes/{tipo}/{cliente_id}/documentos")
-def listar_documentos_drive(tipo: str, cliente_id: int, db: Session = Depends(get_db), _=Depends(current_trabajador)):
+def listar_documentos_drive(
+    tipo: str, cliente_id: int, folder_id: Optional[str] = None,
+    db: Session = Depends(get_db), _=Depends(current_trabajador),
+):
     """Lista en vivo los archivos dentro de la carpeta de Drive del cliente
-    (viejos y nuevos conviven en la misma carpeta)."""
+    (viejos y nuevos conviven en la misma carpeta), o de una subcarpeta suya
+    (ej. una carpeta de año) si se pasa folder_id."""
     cliente = _get_cliente(tipo, cliente_id, db)
+    if folder_id:
+        return {"tiene_carpeta": True, "archivos": drive.listar_archivos(folder_id)}
     if not cliente.drive_folder_id:
         return {"tiene_carpeta": False, "archivos": []}
     archivos = drive.listar_archivos(cliente.drive_folder_id)
     return {"tiene_carpeta": True, "archivos": archivos}
 
 
+class CarpetaIn(BaseModel):
+    nombre: str
+    parent_folder_id: Optional[str] = None
+
+
+@app.post("/api/clientes/{tipo}/{cliente_id}/carpetas")
+def crear_carpeta_cliente_endpoint(
+    tipo: str, cliente_id: int, body: CarpetaIn,
+    db: Session = Depends(get_db), _=Depends(current_trabajador),
+):
+    """Subcarpeta dentro de la carpeta del cliente — ej. para separar
+    documentos por año."""
+    cliente = _get_cliente(tipo, cliente_id, db)
+    if not cliente.drive_folder_id:
+        cliente.drive_folder_id = drive.crear_carpeta_cliente(cliente.nombre, getattr(cliente, "ssn_last4", None))
+        db.commit()
+    parent = body.parent_folder_id or cliente.drive_folder_id
+    carpeta = drive.crear_subcarpeta(parent, body.nombre)
+    return carpeta
+
+
 @app.post("/api/clientes/{tipo}/{cliente_id}/documentos")
 async def subir_documento_drive(
-    tipo: str, cliente_id: int, file: UploadFile = File(...),
+    tipo: str, cliente_id: int, file: UploadFile = File(...), folder_id: Optional[str] = Form(None),
     db: Session = Depends(get_db), _=Depends(current_trabajador),
 ):
     cliente = _get_cliente(tipo, cliente_id, db)
@@ -519,8 +546,9 @@ async def subir_documento_drive(
         if not cliente.drive_folder_id:
             cliente.drive_folder_id = drive.crear_carpeta_cliente(cliente.nombre, getattr(cliente, "ssn_last4", None))
             db.commit()
+        destino = folder_id or cliente.drive_folder_id
         contenido = await file.read()
-        archivo = drive.subir_archivo(cliente.drive_folder_id, file.filename, contenido, file.content_type)
+        archivo = drive.subir_archivo(destino, file.filename, contenido, file.content_type)
     except Exception as exc:
         import traceback
         traceback.print_exc()
@@ -1042,7 +1070,7 @@ def marcar_pagado(body: PagoIn, db: Session = Depends(get_db), trabajador_admin:
 def nomina_historial_trabajador(trabajador_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
     pagos = (
         db.query(PagoNomina)
-        .filter(PagoNomina.trabajador_id == trabajador_id)
+        .filter(PagoNomina.trabajador_id == trabajador_id, PagoNomina.tipo == "pago")
         .order_by(PagoNomina.fecha.desc(), PagoNomina.id.desc())
         .all()
     )
