@@ -262,6 +262,22 @@
   .pill.crit { background: var(--crit-soft); color: var(--crit); }
   .pill.neutral { background: var(--surface-2); color: var(--ink-soft); }
 
+  .status-select {
+    border: none; border-radius: 20px; padding: 3px 22px 3px 10px; font-size: 11px; font-weight: 600;
+    cursor: pointer; appearance: none; -webkit-appearance: none;
+    background-repeat: no-repeat; background-position: right 7px center; background-size: 9px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath fill='%238590a6' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  }
+  .status-select.ok { background-color: var(--accent-soft); color: var(--accent-ink); }
+  .status-select.warn { background-color: var(--warn-soft); color: var(--warn); }
+  .status-select.crit { background-color: var(--crit-soft); color: var(--crit); }
+  .status-select.neutral { background-color: var(--surface-2); color: var(--ink-soft); }
+  .icon-btn {
+    background: none; border: 1px solid var(--line); border-radius: 6px; cursor: pointer;
+    padding: 4px 7px; font-size: 12px; color: var(--ink-soft); line-height: 1;
+  }
+  .icon-btn:hover { background: var(--surface-3); color: var(--ink); }
+
   .avatar {
     width: 30px; height: 30px; border-radius: 50%;
     background: var(--accent-soft); color: var(--accent-ink);
@@ -330,8 +346,32 @@
   .rm-btn { color: var(--crit); background: none; border: none; cursor: pointer; font-size: 16px; padding: 6px; line-height: 1; }
   .hint { font-size: 11px; color: var(--ink-faint); }
 
+  /* ---- multi-select desplegable (ej. tipo de servicio en Estadísticas) ---- */
+  .multiselect { position: relative; }
+  .ms-toggle { width: 100%; justify-content: space-between; display: flex; text-align: left; }
+  .ms-panel {
+    display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.16); max-height: 220px; overflow-y: auto; padding: 6px;
+  }
+  .ms-panel.open { display: block; }
+  .ms-panel label { display: flex; align-items: center; gap: 8px; padding: 5px 6px; font-size: 12.5px; cursor: pointer; border-radius: 5px; }
+  .ms-panel label:hover { background: var(--surface-3); }
+
   /* ---- attach files / camera ---- */
   .attach-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .upload-menu-wrap { position: relative; }
+  .upload-menu {
+    display: none; position: absolute; top: calc(100% + 4px); left: 0; z-index: 30;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.16); padding: 4px; min-width: 160px;
+  }
+  .upload-menu.open { display: block; }
+  .upload-menu button {
+    display: block; width: 100%; text-align: left; background: none; border: none; cursor: pointer;
+    padding: 7px 8px; font-size: 12.5px; border-radius: 5px; color: var(--ink);
+  }
+  .upload-menu button:hover { background: var(--surface-3); }
   .attach-chip {
     display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 10px;
     border: 1px solid var(--line); border-radius: 8px; background: var(--surface-3); font-size: 12px;
@@ -407,6 +447,7 @@
     <div class="navitem" data-view="seguimiento"><span class="ic">◫</span> Seguimiento</div>
     <div class="navitem" data-view="nomina"><span class="ic">$</span> Nómina</div>
     <div class="navitem" data-view="stats"><span class="ic">▤</span> Estadísticas</div>
+    <div class="navitem" data-view="config"><span class="ic">⚙</span> Configuración</div>
     <div class="sidebar-foot">
       <div class="session-lbl">Sesión iniciada como</div>
       <div style="display:flex; align-items:center; gap:10px; padding:6px 10px;">
@@ -433,11 +474,14 @@
       <!-- ================= SERVICIOS (mi trabajo) ================= -->
       <section class="view active" id="view-servicios">
         <h1 class="page-title">Mis servicios</h1>
-        <p class="page-sub">Todos los servicios que has hecho, de cualquier cliente — clic en una fila para ir actualizando su estatus de taxes y revisar el estatus de tu comisión.</p>
+        <p class="page-sub">Todos los servicios que has hecho, de cualquier cliente. Cambia el estatus directo desde el menú desplegable de cada renglón; usa el lápiz para editar el resto del servicio.</p>
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th class="num">Cobro</th><th>Estatus</th><th>Comisión</th></tr>
+              <tr>
+                <th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Año</th><th>Método</th>
+                <th class="num">Cobro</th><th>Estatus</th><th class="num">Comisión</th><th></th>
+              </tr>
             </thead>
             <tbody id="serviciosTableBody"></tbody>
           </table>
@@ -466,7 +510,7 @@
           <div class="profile-id">
             <div class="avatar" id="profAvatar">MT</div>
             <div>
-              <h1 id="profName">—</h1>
+              <h1><span id="profName">—</span> <button class="icon-btn" id="btnEditarCliente" type="button" title="Editar información del cliente">✎</button></h1>
               <div class="meta-line" id="profMeta">—</div>
             </div>
           </div>
@@ -662,6 +706,28 @@
         </div>
       </section>
 
+      <!-- ================= CONFIGURACIÓN (admins) ================= -->
+      <section class="view" id="view-config">
+        <div id="configLocked" class="locked-box" style="display:none;">
+          <div class="ic">🔒</div>
+          <div><strong>No tienes acceso a Configuración.</strong></div>
+          <div class="hint">Solo Admin o quien tenga el permiso puede ver esta sección.</div>
+        </div>
+        <div id="configContent">
+          <h1 class="page-title">Configuración</h1>
+          <p class="page-sub">Ajustes generales de la plataforma. Se guardan en el servidor — aplican para todos los que inicien sesión.</p>
+          <div class="panel">
+            <h2>Fecha de inicio predeterminada de los filtros</h2>
+            <p class="hint" style="margin:-2px 0 10px;">Cuando alguien entra a Estadísticas, Seguimiento, Filtros avanzados o el historial de un trabajador en Nómina, el filtro "Desde" arranca preestablecido a partir de esta fecha (se puede cambiar por sesión, esto solo define el punto de partida).</p>
+            <div class="field-row">
+              <div class="field"><label>Fecha de inicio</label><input type="date" id="cfgFechaInicio"></div>
+              <div class="field" style="justify-content:flex-end;"><button class="btn primary small" id="btnGuardarConfigFecha" type="button">Guardar</button></div>
+            </div>
+            <p class="hint" id="cfgFechaGuardado" style="min-height:14px;"></p>
+          </div>
+        </div>
+      </section>
+
       <!-- ================= STATS ================= -->
       <section class="view" id="view-stats">
         <div id="statsLocked" class="locked-box" style="display:none;">
@@ -681,7 +747,12 @@
             <div class="field-row3">
               <div class="field"><label>Desde</label><input type="date" id="statsFechaInicio"></div>
               <div class="field"><label>Hasta</label><input type="date" id="statsFechaFin"></div>
-              <div class="field"><label>Tipo de servicio</label><select id="statsTipo"><option value="">Todos</option></select></div>
+              <div class="field"><label>Tipo de servicio</label>
+                <div class="multiselect" id="statsTipoMulti">
+                  <button type="button" class="btn small ms-toggle" id="statsTipoToggle">Todos ▾</button>
+                  <div class="ms-panel" id="statsTipoPanel"></div>
+                </div>
+              </div>
             </div>
             <div style="display:flex; gap:8px; margin-top:4px;">
               <button class="btn primary small" id="btnStatsFiltrar" type="button">Aplicar</button>
@@ -810,13 +881,26 @@
       <p class="hint" id="svcDocsHint">Guarda el servicio primero para poder subir documentos.</p>
       <div id="svcDocsButtons" style="display:none;">
         <div class="attach-row">
-          <label class="btn small" for="svcFileInputId">📎 Subir ID (carpeta general del cliente)</label>
+          <div class="upload-menu-wrap">
+            <button class="btn small" id="btnAdjuntarId" type="button">📎 IDs ▾</button>
+            <div class="upload-menu" id="menuAdjuntarId">
+              <button type="button" data-action="file">📁 Elegir archivo</button>
+              <button type="button" data-action="foto">📷 Tomar foto</button>
+            </div>
+          </div>
           <input type="file" id="svcFileInputId" style="display:none;" accept="image/*,.pdf" multiple>
-          <button class="btn small" id="btnTomarFoto" type="button">📷 Tomar foto</button>
+          <p class="hint" style="width:100%; margin:2px 0 0;">Va a la carpeta general del cliente.</p>
         </div>
         <div class="attach-row" id="svcFormaRow" style="display:none;">
-          <label class="btn small" for="svcFileInputForma">📄 Subir forma (carpeta del año del servicio)</label>
+          <div class="upload-menu-wrap">
+            <button class="btn small" id="btnAdjuntarForma" type="button">📄 Formas ▾</button>
+            <div class="upload-menu" id="menuAdjuntarForma">
+              <button type="button" data-action="file">📁 Elegir archivo</button>
+              <button type="button" data-action="foto">📷 Tomar foto</button>
+            </div>
+          </div>
           <input type="file" id="svcFileInputForma" style="display:none;" accept="image/*,.pdf" multiple>
+          <p class="hint" style="width:100%; margin:2px 0 0;">Va a la subcarpeta del año del servicio.</p>
         </div>
       </div>
       <div class="cam-panel" id="camPanel">
@@ -847,7 +931,7 @@
 <!-- ============ MODAL: nuevo cliente ============ -->
 <div class="overlay" id="overlayCliente">
   <div class="modal">
-    <div class="modal-head"><h2>Nuevo cliente / empresa</h2><button class="btn ghost small" data-close>✕</button></div>
+    <div class="modal-head"><h2 id="clienteModalTitle">Nuevo cliente / empresa</h2><button class="btn ghost small" data-close>✕</button></div>
     <div class="modal-body">
       <div class="field-row">
         <div class="field"><label>Tipo</label><select id="cliTipo"><option value="persona">Persona</option><option value="empresa">Empresa</option></select></div>
@@ -899,9 +983,12 @@
         <label style="display:flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="trbPermisoNomina"> Nómina</label>
         <label style="display:flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="trbPermisoEstadisticas"> Estadísticas</label>
         <label style="display:flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="trbPermisoTrabajadores"> Trabajadores</label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="trbPermisoSeguimiento"> Seguimiento</label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="trbPermisoConfiguracion"> Configuración</label>
       </div>
       <p class="hint" style="margin:0;">"Trabajadores" incluye poder ver sueldos y editar permisos de otros — dalo con cuidado.</p>
-      <div class="divider-lbl">Servicios que da y % / monto por defecto</div>
+      <div class="divider-lbl">Servicios que da y % de comisión por defecto</div>
+      <p class="hint" style="margin:-4px 0 0;">Siempre es porcentaje del cobro (ej. 40 = 40% del cobro del servicio) — no monto fijo.</p>
       <div id="trbConfigRows"></div>
       <button class="btn small" id="btnAddTrbConfig" type="button">+ agregar servicio</button>
     </div>
@@ -1013,6 +1100,7 @@
     editingServiceId: null,
     editingWorkerId: null,
     clienteModalChained: false,
+    editingClienteKey: null,
     camStream: null,
     camStreamProfile: null,
     statsCatalogosCargados: false,
@@ -1038,12 +1126,14 @@
   }
   function initials(name){ return (name||"").split(" ").slice(0,2).map(function(w){return w[0]||"";}).join("").toUpperCase(); }
   function el(tag, cls, html){ var e=document.createElement(tag); if(cls) e.className=cls; if(html!==undefined) e.innerHTML=html; return e; }
+  function statusClass(s){
+    if (/aceptado|pagad|transmitido/i.test(s)) return "ok";
+    if (/pendiente|proceso|extension|enviado|revisi[oó]n|listo/i.test(s)) return "warn";
+    if (/rechazad|cancel|descartad/i.test(s)) return "crit";
+    return "neutral";
+  }
   function statusPill(s){
-    var cls = "neutral";
-    if (/aceptado|pagad|transmitido/i.test(s)) cls = "ok";
-    else if (/pendiente|proceso|extension|enviado/i.test(s)) cls = "warn";
-    else if (/rechazad|cancel/i.test(s)) cls = "crit";
-    return '<span class="pill ' + cls + '">' + s + '</span>';
+    return '<span class="pill ' + statusClass(s) + '">' + s + '</span>';
   }
 
   // ---------- API helper ----------
@@ -1105,21 +1195,64 @@
   // ---------- mis servicios (dashboard personal) ----------
   function renderServiciosTable(){
     var tbody = document.getElementById("serviciosTableBody");
-    tbody.innerHTML = '<tr><td colspan="6"><p class="hint" style="padding:14px 0;">Cargando…</p></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9"><p class="hint" style="padding:14px 0;">Cargando…</p></td></tr>';
     api("/api/servicios/mios").then(function(lista){
       tbody.innerHTML = "";
       if (!lista.length) {
-        tbody.innerHTML = '<tr><td colspan="6"><p class="hint" style="padding:14px 0;">Todavía no tienes servicios registrados.</p></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9"><p class="hint" style="padding:14px 0;">Todavía no tienes servicios registrados.</p></td></tr>';
         return;
       }
       lista.forEach(function(s){
-        var tr = el("tr","row-click");
+        var tr = el("tr");
         var comisionHtml = "—";
         if (s.comision_monto !== null && s.comision_monto !== undefined) {
           comisionHtml = money(s.comision_monto) + " " + (s.comision_estado === "pagada" ? '<span class="pill ok">pagada</span>' : '<span class="pill warn">pendiente</span>');
         }
-        tr.innerHTML = '<td>'+fmtFecha(s.fecha)+'</td><td>'+(s.cliente||"—")+'</td><td>'+s.tipo+'</td><td class="num">'+money(s.cobro)+'</td><td>'+statusPill(s.estatus)+'</td><td>'+comisionHtml+'</td>';
-        tr.addEventListener("click", function(){ openServicioModal(s.id, null); });
+        var tdCliente = el("td");
+        var clienteLink = el("a", null, s.cliente || "—");
+        clienteLink.href = "#";
+        clienteLink.style.color = "inherit"; clienteLink.style.textDecoration = "underline";
+        clienteLink.addEventListener("click", function(e){
+          e.preventDefault();
+          if (s.cliente_tipo && s.cliente_id) openProfile(s.cliente_tipo, s.cliente_id);
+        });
+        tdCliente.appendChild(clienteLink);
+
+        var tdEstatus = el("td");
+        var conf = SERVICE_TYPES[s.tipo];
+        var esTaxes = conf && conf.linea === "Taxes";
+        var sel = el("select", "status-select");
+        var opciones = esTaxes ? STATUS_TAXES_OPTIONS : ESTATUS_PAGO_BASE;
+        var valorActual = esTaxes ? ((s.detalle||{}).statusTaxes || "") : s.estatus;
+        opciones.forEach(function(op){ var o=el("option"); o.value=op; o.textContent=op; sel.appendChild(o); });
+        if (opciones.indexOf(valorActual) === -1 && valorActual) { var extra=el("option"); extra.value=valorActual; extra.textContent=valorActual; sel.insertBefore(extra, sel.firstChild); }
+        sel.value = valorActual;
+        sel.classList.add(statusClass(valorActual));
+        sel.addEventListener("click", function(e){ e.stopPropagation(); });
+        sel.addEventListener("change", function(){
+          sel.className = "status-select " + statusClass(sel.value);
+          var body = esTaxes ? {status_taxes: sel.value} : {estatus: sel.value};
+          api("/api/servicios/" + s.id + "/estatus-rapido", {method:"PUT", body: body}).catch(function(e){
+            alert("No se pudo actualizar el estatus: " + e.message);
+          });
+        });
+        tdEstatus.appendChild(sel);
+
+        var tdEditar = el("td");
+        var btnEditar = el("button", "icon-btn", "✎");
+        btnEditar.type = "button";
+        btnEditar.title = "Editar servicio completo";
+        btnEditar.addEventListener("click", function(e){ e.stopPropagation(); openServicioModal(s.id, null); });
+        tdEditar.appendChild(btnEditar);
+
+        var tdFecha = el("td", null, fmtFecha(s.fecha));
+        var tdTipo = el("td", null, s.tipo);
+        var tdAnio = el("td", null, (s.detalle||{}).anio || "—");
+        var tdMetodo = el("td", null, s.metodo_pago || "—");
+        var tdCobro = el("td", "num", money(s.cobro));
+        var tdComision = el("td", "num", comisionHtml);
+
+        [tdFecha, tdCliente, tdTipo, tdAnio, tdMetodo, tdCobro, tdEstatus, tdComision, tdEditar].forEach(function(td){ tr.appendChild(td); });
         tbody.appendChild(tr);
       });
     }).catch(function(e){ if (e.message !== "no-auth") console.error(e); });
@@ -1136,6 +1269,8 @@
     var puedeNomina = tienePermiso("nomina");
     var puedeStats = tienePermiso("estadisticas");
     var puedeTrabajadores = tienePermiso("trabajadores");
+    var puedeSeguimiento = tienePermiso("seguimiento");
+    var puedeConfig = tienePermiso("configuracion");
     document.getElementById("userAvatar").textContent = initials(u.nombre);
     document.getElementById("userName").textContent = u.nombre;
     document.getElementById("userRol").textContent = isAdmin ? "Admin" : "Trabajador";
@@ -1144,17 +1279,41 @@
       : "Solo ves tus propios clientes (a los que les has hecho un servicio) y tus tipos de servicio configurados.";
     document.querySelector('.navitem[data-view="nomina"]').classList.toggle("hidden", !puedeNomina);
     document.querySelector('.navitem[data-view="stats"]').classList.toggle("hidden", !puedeStats);
-    document.querySelector('.navitem[data-view="seguimiento"]').classList.toggle("hidden", !puedeStats);
+    document.querySelector('.navitem[data-view="seguimiento"]').classList.toggle("hidden", !puedeSeguimiento);
     document.querySelector('.navitem[data-view="trabajadores"]').classList.toggle("hidden", !puedeTrabajadores);
+    document.querySelector('.navitem[data-view="config"]').classList.toggle("hidden", !puedeConfig);
     document.getElementById("nominaLocked").style.display = puedeNomina ? "none" : "block";
     document.getElementById("nominaContent").style.display = puedeNomina ? "block" : "none";
     document.getElementById("statsLocked").style.display = puedeStats ? "none" : "block";
     document.getElementById("statsContent").style.display = puedeStats ? "block" : "none";
-    document.getElementById("seguimientoLocked").style.display = puedeStats ? "none" : "block";
-    document.getElementById("seguimientoContent").style.display = puedeStats ? "block" : "none";
+    document.getElementById("seguimientoLocked").style.display = puedeSeguimiento ? "none" : "block";
+    document.getElementById("seguimientoContent").style.display = puedeSeguimiento ? "block" : "none";
+    document.getElementById("configLocked").style.display = puedeConfig ? "none" : "block";
+    document.getElementById("configContent").style.display = puedeConfig ? "block" : "none";
     showView("servicios");
     renderServiciosTable();
+    cargarFechaInicioDefault();
   }
+
+  // ---------- configuración: fecha de inicio predeterminada de los filtros ----------
+  function cargarFechaInicioDefault(){
+    return api("/api/config/fecha_inicio_predeterminada").then(function(r){
+      state.fechaInicioDefault = r.valor || "";
+      document.getElementById("cfgFechaInicio").value = state.fechaInicioDefault;
+      [ "statsFechaInicio", "segDesde", "advDesde", "histFechaInicio" ].forEach(function(id){
+        var input = document.getElementById(id);
+        if (input && !input.value) input.value = state.fechaInicioDefault;
+      });
+    }).catch(function(){});
+  }
+  document.getElementById("btnGuardarConfigFecha").addEventListener("click", function(){
+    var valor = document.getElementById("cfgFechaInicio").value || "";
+    api("/api/config/fecha_inicio_predeterminada", {method:"PUT", body:{valor: valor}}).then(function(){
+      state.fechaInicioDefault = valor;
+      document.getElementById("cfgFechaGuardado").textContent = "Guardado — aplica a partir de ahora en los filtros de todos.";
+      setTimeout(function(){ document.getElementById("cfgFechaGuardado").textContent = ""; }, 3000);
+    }).catch(function(e){ alert("No se pudo guardar: " + e.message); });
+  });
 
   // ---------- client list ----------
   var searchTimer = null;
@@ -1227,6 +1386,7 @@
     state.docFolderStack = [];
     api("/api/clientes/" + tipo + "/" + id).then(function(c){
       state.currentProfile.rootFolderId = c.drive_folder_id || null;
+      state.currentProfileData = c;
       document.getElementById("profAvatar").textContent = tipo==="empresa" ? "⌂" : initials(c.nombre);
       document.getElementById("profAvatar").className = "avatar" + (tipo==="empresa" ? " emp" : "");
       document.getElementById("profName").textContent = c.nombre;
@@ -1531,6 +1691,7 @@
       var overlay = b.closest(".overlay");
       overlay.classList.remove("open");
       if (overlay.id === "overlayServicio") stopCamera();
+      if (overlay.id === "overlayCliente") { state.editingClienteKey = null; document.getElementById("cliTipo").disabled = false; }
     });
   });
   document.querySelectorAll(".overlay").forEach(function(o){
@@ -1544,14 +1705,25 @@
       var nuevo = el("option"); nuevo.value="__new__"; nuevo.textContent="➕ Crear nuevo cliente…"; sel.appendChild(nuevo);
       lista.forEach(function(c){
         var o = el("option"); o.value = c.tipo + ":" + c.id; o.textContent = c.nombre + (c.tipo==="empresa"?" (empresa)":"");
+        o.dataset.tieneSsn = c.tiene_ssn ? "1" : "";
         sel.appendChild(o);
       });
       if (selectedKey) sel.value = selectedKey;
+      actualizarClienteTieneSSN();
     });
+  }
+  function actualizarClienteTieneSSN(){
+    var sel = document.getElementById("svcCliente");
+    var opt = sel.options[sel.selectedIndex];
+    state.clienteTieneSSN = !!(opt && opt.dataset.tieneSsn);
   }
   document.getElementById("svcCliente").addEventListener("change", function(){
     if (this.value === "__new__") {
       state.clienteModalChained = true;
+      state.editingClienteKey = null;
+      document.getElementById("clienteModalTitle").textContent = "Nuevo cliente / empresa";
+      document.getElementById("btnGuardarCliente").textContent = "Guardar cliente";
+      document.getElementById("cliTipo").disabled = false;
       document.getElementById("cliNombre").value = "";
       document.getElementById("cliTelefono").value = "";
       document.getElementById("cliSsn").value = "";
@@ -1560,7 +1732,10 @@
       document.getElementById("cliGiroWrap").style.display = "none";
       document.getElementById("cliSsnLabel").textContent = "SSN / ITIN completo";
       openModal("overlayCliente");
+      return;
     }
+    actualizarClienteTieneSSN();
+    actualizarVisibilidadSSN();
   });
 
   function fillTipoSelect(sel, allowed, selectedTipo){
@@ -1599,6 +1774,7 @@
         input.placeholder = "123-45-6789";
         input.maxLength = 11;
         input.addEventListener("input", function(){ this.value = maskSSN(this.value); });
+        fw.classList.add("ssn-field-wrap");
       }
       if (existingDetalle && existingDetalle[f.key] !== undefined) input.value = existingDetalle[f.key];
       else if (f.default) input.value = f.default;
@@ -1607,6 +1783,11 @@
       if ((i+1) % 2 === 0 && i !== conf.extra.length-1) { wrap.appendChild(row); row = el("div","field-row"); }
     });
     wrap.appendChild(row);
+    if (wrap.querySelector(".ssn-field-wrap")) {
+      var ssnHint = el("p","hint ssn-hint","Este cliente ya tiene SSN/ITIN guardado en su expediente — no hace falta capturarlo de nuevo aquí.");
+      wrap.appendChild(ssnHint);
+    }
+    actualizarVisibilidadSSN();
     if (conf.linea === "Contabilidad") {
       var contasWrap = el("div");
       contasWrap.style.cssText = "display:flex; flex-direction:column; gap:6px;";
@@ -1623,6 +1804,14 @@
       }
       wrap.appendChild(contasWrap);
     }
+  }
+  function actualizarVisibilidadSSN(){
+    var wrap = document.getElementById("svcDetalleExtra");
+    if (!wrap) return;
+    var campo = wrap.querySelector(".ssn-field-wrap");
+    var hint = wrap.querySelector(".ssn-hint");
+    if (campo) campo.style.display = state.clienteTieneSSN ? "none" : "";
+    if (hint) hint.style.display = state.clienteTieneSSN ? "" : "none";
   }
   function collectDetalle(){
     var out = {};
@@ -1734,13 +1923,14 @@
     document.getElementById("camPanel").classList.remove("open");
     document.getElementById("camError").textContent = "";
   }
-  document.getElementById("btnTomarFoto").addEventListener("click", function(){
+  function abrirCamaraServicio(categoria){
+    state.camCategoria = categoria;
     var panel = document.getElementById("camPanel");
     panel.classList.add("open");
     var errBox = document.getElementById("camError");
     errBox.textContent = "";
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      errBox.textContent = "Este navegador no expone la cámara. Usa 'Subir ID' para subir la foto en su lugar.";
+      errBox.textContent = "Este navegador no expone la cámara. Usa 'Elegir archivo' para subir la foto en su lugar.";
       return;
     }
     navigator.mediaDevices.getUserMedia({ video: true }).then(function(stream){
@@ -1748,6 +1938,30 @@
       document.getElementById("camVideo").srcObject = stream;
     }).catch(function(err){
       errBox.textContent = "No se pudo acceder a la cámara (" + err.name + ").";
+    });
+  }
+  // Cada botón (IDs / Formas) abre un menú chico con "Elegir archivo" / "Tomar foto",
+  // para que quede claro a qué carpeta va la foto tomada — antes siempre iba a IDs.
+  function wireUploadMenu(btnId, menuId, fileInputId, categoria){
+    var btn = document.getElementById(btnId), menu = document.getElementById(menuId);
+    btn.addEventListener("click", function(e){
+      e.stopPropagation();
+      document.querySelectorAll(".upload-menu.open").forEach(function(m){ if (m !== menu) m.classList.remove("open"); });
+      menu.classList.toggle("open");
+    });
+    menu.querySelectorAll("button").forEach(function(b){
+      b.addEventListener("click", function(){
+        menu.classList.remove("open");
+        if (b.dataset.action === "file") document.getElementById(fileInputId).click();
+        else abrirCamaraServicio(categoria);
+      });
+    });
+  }
+  wireUploadMenu("btnAdjuntarId", "menuAdjuntarId", "svcFileInputId", "id");
+  wireUploadMenu("btnAdjuntarForma", "menuAdjuntarForma", "svcFileInputForma", "forma");
+  document.addEventListener("click", function(e){
+    document.querySelectorAll(".upload-menu.open").forEach(function(m){
+      if (!m.contains(e.target)) m.classList.remove("open");
     });
   });
   document.getElementById("btnCerrarCam").addEventListener("click", stopCamera);
@@ -1758,8 +1972,9 @@
     canvas.width = video.videoWidth; canvas.height = video.videoHeight;
     canvas.getContext("2d").drawImage(video, 0, 0);
     canvas.toBlob(function(blob){
+      var categoria = state.camCategoria || "id";
       var f = new File([blob], "Foto - " + new Date().toLocaleTimeString() + ".jpg", {type:"image/jpeg"});
-      subirDocumentoServicio(f, "id").then(function(){ document.getElementById("svcUploadStatus").textContent = ""; });
+      subirDocumentoServicio(f, categoria).then(function(){ document.getElementById("svcUploadStatus").textContent = ""; });
       stopCamera();
     }, "image/jpeg", 0.92);
   });
@@ -1877,6 +2092,10 @@
   // ---- nuevo cliente ----
   document.getElementById("btnNuevoClienteTop").addEventListener("click", function(){
     state.clienteModalChained = false;
+    state.editingClienteKey = null;
+    document.getElementById("clienteModalTitle").textContent = "Nuevo cliente / empresa";
+    document.getElementById("btnGuardarCliente").textContent = "Guardar cliente";
+    document.getElementById("cliTipo").disabled = false;
     document.getElementById("cliNombre").value = "";
     document.getElementById("cliTelefono").value = "";
     document.getElementById("cliSsn").value = "";
@@ -1884,6 +2103,26 @@
     document.getElementById("cliTipo").value = "persona";
     document.getElementById("cliGiroWrap").style.display = "none";
     document.getElementById("cliSsnLabel").textContent = "SSN / ITIN completo";
+    document.getElementById("cliSsn").placeholder = "123-45-6789";
+    openModal("overlayCliente");
+  });
+  document.getElementById("btnEditarCliente").addEventListener("click", function(){
+    var c = state.currentProfileData;
+    if (!c) return;
+    state.clienteModalChained = false;
+    state.editingClienteKey = { tipo: c.tipo, id: c.id };
+    var isEmpresa = c.tipo === "empresa";
+    document.getElementById("clienteModalTitle").textContent = "Editar cliente";
+    document.getElementById("btnGuardarCliente").textContent = "Guardar cambios";
+    document.getElementById("cliTipo").value = c.tipo;
+    document.getElementById("cliTipo").disabled = true;
+    document.getElementById("cliNombre").value = c.nombre || "";
+    document.getElementById("cliTelefono").value = c.telefono || "";
+    document.getElementById("cliGiroWrap").style.display = isEmpresa ? "" : "none";
+    document.getElementById("cliGiro").value = isEmpresa ? (c.giro || "") : "";
+    document.getElementById("cliSsnLabel").textContent = isEmpresa ? "EIN" : (c.ssn_last4 ? "SSN / ITIN (dejar vacío para no cambiarlo)" : "SSN / ITIN completo");
+    document.getElementById("cliSsn").placeholder = isEmpresa ? (c.ein || "12-3456789") : (c.ssn_last4 ? "•••-••-" + c.ssn_last4 : "123-45-6789");
+    document.getElementById("cliSsn").value = isEmpresa ? (c.ein || "") : "";
     openModal("overlayCliente");
   });
   document.getElementById("cliTipo").addEventListener("change", function(){
@@ -1901,12 +2140,32 @@
     var nombre = document.getElementById("cliNombre").value.trim();
     if (!nombre) { alert("Falta el nombre."); return; }
     var tipo = document.getElementById("cliTipo").value;
+    var btn = this;
+    btn.disabled = true;
+
+    if (state.editingClienteKey) {
+      var editBody = { nombre: nombre, telefono: document.getElementById("cliTelefono").value || null };
+      if (tipo === "persona") { editBody.ssn_full = document.getElementById("cliSsn").value || null; }
+      else { editBody.giro = document.getElementById("cliGiro").value || null; editBody.ein = document.getElementById("cliSsn").value || null; }
+      var key = state.editingClienteKey;
+      api("/api/clientes/" + key.tipo + "/" + key.id, {method:"PUT", body: editBody}).then(function(){
+        closeModal("overlayCliente");
+        state.editingClienteKey = null;
+        document.getElementById("cliTipo").disabled = false;
+        renderClientTable();
+        openProfile(key.tipo, key.id);
+      }).catch(function(e){
+        alert("No se pudo guardar: " + e.message);
+      }).then(function(){
+        btn.disabled = false;
+      });
+      return;
+    }
+
     var body = { tipo: tipo, nombre: nombre, telefono: document.getElementById("cliTelefono").value || null };
     if (tipo === "persona") { body.ssn_full = document.getElementById("cliSsn").value || null; }
     else { body.giro = document.getElementById("cliGiro").value || null; body.ein = document.getElementById("cliSsn").value || null; }
 
-    var btn = this;
-    btn.disabled = true;
     api("/api/clientes", {method:"POST", body: body}).then(function(c){
       closeModal("overlayCliente");
       if (state.clienteModalChained) {
@@ -1970,10 +2229,14 @@
   function trbConfigRow(tipo, pct){
     var r = el("div","comision-row");
     var tSel = el("select"); ALL_TIPOS.forEach(function(t){ var o=el("option"); o.value=t; o.textContent=t; if(t===tipo) o.selected=true; tSel.appendChild(o); });
-    var pctIn = el("input"); pctIn.type="number"; pctIn.placeholder="% o $"; pctIn.value = pct!==undefined?pct:"";
+    var pctWrap = el("div"); pctWrap.style.cssText = "display:flex; align-items:center; gap:6px;";
+    var pctIn = el("input"); pctIn.type="number"; pctIn.placeholder="0"; pctIn.value = pct!==undefined?pct:"";
+    pctIn.style.flex = "1";
+    var pctSuffix = el("span", null, "%"); pctSuffix.style.cssText = "color:var(--ink-faint); font-size:12.5px; white-space:nowrap;";
+    pctWrap.appendChild(pctIn); pctWrap.appendChild(pctSuffix);
     var rm = el("button","rm-btn","✕"); rm.type="button"; rm.addEventListener("click", function(){ r.remove(); });
     r.style.gridTemplateColumns = "1.6fr 1fr auto";
-    r.appendChild(tSel); r.appendChild(pctIn); r.appendChild(rm);
+    r.appendChild(tSel); r.appendChild(pctWrap); r.appendChild(rm);
     return r;
   }
   function openTrabajadorModal(editId, preloaded){
@@ -1994,6 +2257,8 @@
     document.getElementById("trbPermisoNomina").checked = permisosActuales.indexOf("nomina") > -1;
     document.getElementById("trbPermisoEstadisticas").checked = permisosActuales.indexOf("estadisticas") > -1;
     document.getElementById("trbPermisoTrabajadores").checked = permisosActuales.indexOf("trabajadores") > -1;
+    document.getElementById("trbPermisoSeguimiento").checked = permisosActuales.indexOf("seguimiento") > -1;
+    document.getElementById("trbPermisoConfiguracion").checked = permisosActuales.indexOf("configuracion") > -1;
     var rows = document.getElementById("trbConfigRows");
     rows.innerHTML = "";
     if (editing && editing.config_servicios && editing.config_servicios.length) {
@@ -2028,6 +2293,8 @@
         document.getElementById("trbPermisoNomina").checked ? "nomina" : null,
         document.getElementById("trbPermisoEstadisticas").checked ? "estadisticas" : null,
         document.getElementById("trbPermisoTrabajadores").checked ? "trabajadores" : null,
+        document.getElementById("trbPermisoSeguimiento").checked ? "seguimiento" : null,
+        document.getElementById("trbPermisoConfiguracion").checked ? "configuracion" : null,
       ].filter(Boolean),
     };
     var btn = this;
@@ -2252,6 +2519,43 @@
       sel.appendChild(opt);
     });
   }
+  function initMultiSelect(toggleId, panelId, options, onChange){
+    var toggle = document.getElementById(toggleId), panel = document.getElementById(panelId);
+    var selected = [];
+    function render(){
+      panel.innerHTML = "";
+      options.forEach(function(op){
+        var lbl = el("label");
+        var cb = document.createElement("input");
+        cb.type = "checkbox"; cb.value = op; cb.checked = selected.indexOf(op) > -1;
+        cb.addEventListener("change", function(){
+          if (cb.checked) { if (selected.indexOf(op) === -1) selected.push(op); }
+          else { selected = selected.filter(function(x){ return x !== op; }); }
+          updateToggleLabel();
+          if (onChange) onChange(selected);
+        });
+        lbl.appendChild(cb);
+        lbl.appendChild(document.createTextNode(op));
+        panel.appendChild(lbl);
+      });
+    }
+    function updateToggleLabel(){
+      toggle.textContent = (selected.length === 0 ? "Todos" : selected.length === 1 ? selected[0] : selected.length + " seleccionados") + " ▾";
+    }
+    toggle.addEventListener("click", function(e){
+      e.stopPropagation();
+      panel.classList.toggle("open");
+    });
+    document.addEventListener("click", function(e){
+      if (panel.classList.contains("open") && !panel.contains(e.target) && e.target !== toggle) panel.classList.remove("open");
+    });
+    render();
+    updateToggleLabel();
+    return {
+      getSelected: function(){ return selected.slice(); },
+      clear: function(){ selected = []; render(); updateToggleLabel(); }
+    };
+  }
   function renderBar(elId, dataObj, emptyMsg, esDinero){
     var keys = Object.keys(dataObj);
     var max = Math.max.apply(null, keys.map(function(k){return dataObj[k];}).concat([1]));
@@ -2295,7 +2599,7 @@
       api("/api/trabajadores/basico"),
     ]).then(function(r){
       var tipos = r[0], trabajadores = r[1];
-      poblarSelect(document.getElementById("statsTipo"), tipos);
+      state.statsTipoMs = initMultiSelect("statsTipoToggle", "statsTipoPanel", tipos);
       poblarSelect(document.getElementById("advTipo"), tipos);
       poblarSelect(document.getElementById("advMetodo"), METODOS_PAGO);
       poblarSelect(document.getElementById("advEstatus"), ESTATUS_PAGO_TODOS);
@@ -2351,9 +2655,8 @@
 
   document.getElementById("btnStatsFiltrar").addEventListener("click", renderStats);
   document.getElementById("btnStatsLimpiar").addEventListener("click", function(){
-    document.getElementById("statsFechaInicio").value = "";
-    document.getElementById("statsFechaFin").value = "";
-    document.getElementById("statsTipo").value = "";
+    document.getElementById("statsFechaInicio").value = document.getElementById("statsFechaFin").value = state.fechaInicioDefault || "";
+    if (state.statsTipoMs) state.statsTipoMs.clear();
     renderStats();
   });
   function renderStats(){
@@ -2361,10 +2664,9 @@
       var params = new URLSearchParams();
       var fi = document.getElementById("statsFechaInicio").value;
       var ff = document.getElementById("statsFechaFin").value;
-      var tipo = document.getElementById("statsTipo").value;
       if (fi) params.set("fecha_inicio", fi);
       if (ff) params.set("fecha_fin", ff);
-      if (tipo) params.set("tipo", tipo);
+      (state.statsTipoMs ? state.statsTipoMs.getSelected() : []).forEach(function(t){ params.append("tipo", t); });
       return api("/api/estadisticas?" + params.toString());
     }).then(function(data){
       document.getElementById("statsResumen").innerHTML =

@@ -61,6 +61,17 @@ def require_permiso(permiso: str):
     return checker
 
 
+def require_permiso_any(*permisos: str):
+    """Como require_permiso, pero pasa con cualquiera de varios permisos —
+    para endpoints que alimentan más de una pantalla (ej. estadísticas y
+    seguimiento comparten el mismo buscador de servicios)."""
+    def checker(trabajador: Trabajador = Depends(current_trabajador)) -> Trabajador:
+        if trabajador.rol.value == "admin" or any(p in (trabajador.permisos or []) for p in permisos):
+            return trabajador
+        raise HTTPException(status_code=403, detail="No tienes permiso para ver esta sección.")
+    return checker
+
+
 @router.get("/auth/login")
 async def login(request: Request):
     if AUTH_DEV_MODE:

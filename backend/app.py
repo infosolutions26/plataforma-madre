@@ -4,7 +4,7 @@ import pathlib
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,7 +18,7 @@ from sqlalchemy.exc import DBAPIError
 
 import drive
 import recibos
-from auth import current_trabajador, require_admin, require_permiso, router as auth_router
+from auth import current_trabajador, require_admin, require_permiso, require_permiso_any, router as auth_router
 from catalogo import ESTATUS_LIBERA_COMISION, SERVICE_TYPES, linea_de
 from database import Base, engine, encrypt_ssn, decrypt_ssn, get_db, hash_password
 from models import (
@@ -333,6 +333,36 @@ def normalizar_estatus_legacy(db: Session = Depends(get_db), _=Depends(require_a
     return {"cambios": cambios, "sin_mapear": sin_mapear}
 
 
+@app.post("/api/_corregir_fechas_futuras")
+def corregir_fechas_futuras(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Nosotros capturamos fecha en formato estadounidense (mm/dd/yyyy), pero
+    algunos servicios importados del histórico quedaron con día y mes
+    invertidos (dd/mm/yyyy), lo que a veces produce una fecha en el futuro —
+    señal clara de que se invirtieron. Para cada servicio con fecha posterior
+    a hoy: si intercambiar día y mes da una fecha válida y ya no futura, se
+    corrige. Si no (ej. el "mes" resultante sería inválido, o sigue en el
+    futuro incluso invertido), se deja intacto y se reporta para revisión a
+    mano — no se adivina. Idempotente. Endpoint temporal."""
+    hoy = date.today()
+    corregidos, sin_corregir = [], []
+    for s in db.query(Servicio).filter(Servicio.fecha > hoy).all():
+        d, m, y = s.fecha.day, s.fecha.month, s.fecha.year
+        nueva = None
+        try:
+            candidata = date(y, d, m)  # intercambia día y mes
+            if candidata <= hoy:
+                nueva = candidata
+        except ValueError:
+            nueva = None
+        if nueva:
+            corregidos.append({"id": s.id, "de": s.fecha.isoformat(), "a": nueva.isoformat()})
+            s.fecha = nueva
+        else:
+            sin_corregir.append({"id": s.id, "fecha": s.fecha.isoformat(), "tipo": s.tipo})
+    db.commit()
+    return {"corregidos": corregidos, "sin_corregir": sin_corregir}
+
+
 class DriveMatchIn(BaseModel):
     nombre: str
     ssn: Optional[str] = None
@@ -601,11 +631,11 @@ def buscar_cualquier_cliente(q: str = "", db: Session = Depends(get_db), _=Depen
     for p in personas:
         if ql and ql not in p.nombre.lower():
             continue
-        out.append({"tipo": "persona", "id": p.id, "nombre": p.nombre})
+        out.append({"tipo": "persona", "id": p.id, "nombre": p.nombre, "tiene_ssn": bool(p.ssn_last4)})
     for e in empresas:
         if ql and ql not in e.nombre.lower():
             continue
-        out.append({"tipo": "empresa", "id": e.id, "nombre": e.nombre})
+        out.append({"tipo": "empresa", "id": e.id, "nombre": e.nombre, "tiene_ssn": False})
     return sorted(out, key=lambda x: x["nombre"])[:500]
 
 
@@ -650,6 +680,39 @@ def perfil_cliente(tipo: str, cliente_id: int, db: Session = Depends(get_db), _=
             "telefono": c.telefono, "correo": c.correo, "actividad": c.actividad,
             "ghl_contact_id": c.ghl_contact_id, "drive_folder_id": c.drive_folder_id,
         }
+    raise HTTPException(status_code=400)
+
+
+class ClienteEditIn(BaseModel):
+    nombre: str
+    telefono: Optional[str] = None
+    ssn_full: Optional[str] = None  # persona — si viene, reemplaza; si no, se deja igual
+    giro: Optional[str] = None  # empresa
+    ein: Optional[str] = None  # empresa
+
+
+@app.put("/api/clientes/{tipo}/{cliente_id}")
+def editar_cliente(
+    tipo: str, cliente_id: int, body: ClienteEditIn,
+    db: Session = Depends(get_db), _=Depends(current_trabajador),
+):
+    if tipo == "persona":
+        p = db.get(Persona, cliente_id)
+        if not p:
+            raise HTTPException(status_code=404)
+        p.nombre, p.telefono = body.nombre, body.telefono
+        if body.ssn_full:
+            p.ssn_encrypted = encrypt_ssn(body.ssn_full)
+            p.ssn_last4 = body.ssn_full[-4:]
+        db.commit()
+        return {"tipo": "persona", "id": p.id}
+    elif tipo == "empresa":
+        e = db.get(Empresa, cliente_id)
+        if not e:
+            raise HTTPException(status_code=404)
+        e.nombre, e.telefono, e.giro, e.ein = body.nombre, body.telefono, body.giro, body.ein
+        db.commit()
+        return {"tipo": "empresa", "id": e.id}
     raise HTTPException(status_code=400)
 
 
@@ -945,17 +1008,18 @@ def mis_servicios(db: Session = Depends(get_db), trabajador: Trabajador = Depend
     )
     out = []
     for s in servicios:
-        cliente = None
+        cliente, cliente_tipo, cliente_id = None, None, None
         if s.persona_id:
             p = db.get(Persona, s.persona_id)
-            cliente = p.nombre if p else None
+            cliente, cliente_tipo, cliente_id = (p.nombre if p else None), "persona", s.persona_id
         elif s.empresa_id:
             e = db.get(Empresa, s.empresa_id)
-            cliente = e.nombre if e else None
+            cliente, cliente_tipo, cliente_id = (e.nombre if e else None), "empresa", s.empresa_id
         mi_comision = next((c for c in s.comisiones if c.trabajador_id == trabajador.id), None)
         out.append({
-            "id": s.id, "tipo": s.tipo, "fecha": s.fecha, "cobro": float(s.cobro),
-            "estatus": s.estatus, "cliente": cliente,
+            "id": s.id, "tipo": s.tipo, "linea": linea_de(s.tipo), "fecha": s.fecha, "cobro": float(s.cobro),
+            "metodo_pago": s.metodo_pago, "estatus": s.estatus, "detalle": s.detalle or {},
+            "cliente": cliente, "cliente_tipo": cliente_tipo, "cliente_id": cliente_id,
             "comision_estado": mi_comision.estado.value if mi_comision else None,
             "comision_monto": float(mi_comision.monto) if mi_comision else None,
         })
@@ -1082,9 +1146,34 @@ def editar_servicio(
     return {"ok": True}
 
 
+class EstatusRapidoIn(BaseModel):
+    estatus: Optional[str] = None  # estatus de pago (Pagado, Pendiente de pago...)
+    status_taxes: Optional[str] = None  # detalle.statusTaxes — el estatus del trámite en sí
+
+
+@app.put("/api/servicios/{servicio_id}/estatus-rapido")
+def editar_estatus_rapido(
+    servicio_id: int, body: EstatusRapidoIn, db: Session = Depends(get_db), trabajador: Trabajador = Depends(current_trabajador)
+):
+    """Actualiza solo el estatus (de pago y/o del trámite de tax) desde el
+    menú desplegable directo sobre el renglón de la tabla de servicios, sin
+    tener que abrir el modal completo ni reenviar el resto de los campos."""
+    s = db.get(Servicio, servicio_id)
+    if not s:
+        raise HTTPException(status_code=404)
+    if trabajador.rol != RolUsuario.admin and s.trabajador_id != trabajador.id:
+        raise HTTPException(status_code=403, detail="Solo puedes editar tus propios servicios.")
+    if body.estatus:
+        s.estatus = body.estatus
+    if body.status_taxes:
+        s.detalle = {**(s.detalle or {}), "statusTaxes": body.status_taxes}
+    db.commit()
+    return {"ok": True}
+
+
 # ---------- trabajadores (admin) ----------
 
-PERMISOS_VALIDOS = ["nomina", "estadisticas", "trabajadores"]
+PERMISOS_VALIDOS = ["nomina", "estadisticas", "trabajadores", "seguimiento", "configuracion"]
 
 
 class TrabajadorIn(BaseModel):
@@ -1096,7 +1185,7 @@ class TrabajadorIn(BaseModel):
     tipo_pago: str = "comision"  # comision | sueldo | mixto
     sueldo_fijo: float = 0  # semanal — solo aplica si tipo_pago es sueldo/mixto
     activo: bool = True
-    permisos: list[str] = []  # extra además de Servicios+Clientes: nomina | estadisticas | trabajadores
+    permisos: list[str] = []  # extra además de Servicios+Clientes: nomina | estadisticas | trabajadores | seguimiento | configuracion
 
 
 @app.get("/api/trabajadores")
@@ -1176,6 +1265,47 @@ def eliminar_trabajador(trabajador_id: int, db: Session = Depends(get_db), _=Dep
     t.activo = False  # baja lógica — sus servicios/comisiones históricas se quedan intactas
     db.commit()
     return {"ok": True}
+
+
+class FusionTrabajadorIn(BaseModel):
+    mantener_id: int
+    eliminar_id: int
+
+
+@app.post("/api/_fusionar_trabajadores")
+def fusionar_trabajadores(body: FusionTrabajadorIn, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Fusiona dos fichas de trabajador que son la misma persona (ej. alta
+    duplicada con dos correos): reasigna sus servicios, comisiones y pagos de
+    nómina históricos al que se mantiene, junta su config_servicios (sin
+    pisar lo que el que se mantiene ya tenía configurado para un tipo), y
+    borra la ficha duplicada. Los recibos PDF ya generados siguen
+    accesibles — su link no depende de quién quedó como dueño. Endpoint
+    temporal, se puede quitar después."""
+    keeper = db.get(Trabajador, body.mantener_id)
+    dup = db.get(Trabajador, body.eliminar_id)
+    if not keeper or not dup:
+        raise HTTPException(status_code=404, detail="No existe mantener_id o eliminar_id.")
+    if keeper.id == dup.id:
+        raise HTTPException(status_code=400, detail="mantener_id y eliminar_id no pueden ser el mismo.")
+
+    n_servicios = db.query(Servicio).filter(Servicio.trabajador_id == dup.id).update({"trabajador_id": keeper.id})
+    n_comisiones = db.query(Comision).filter(Comision.trabajador_id == dup.id).update({"trabajador_id": keeper.id})
+    n_pagos = db.query(PagoNomina).filter(PagoNomina.trabajador_id == dup.id).update({"trabajador_id": keeper.id})
+
+    tipos_keeper = {c.get("tipo") for c in (keeper.config_servicios or [])}
+    config_combinado = list(keeper.config_servicios or [])
+    for c in (dup.config_servicios or []):
+        if c.get("tipo") not in tipos_keeper:
+            config_combinado.append(c)
+    keeper.config_servicios = config_combinado
+
+    db.delete(dup)
+    db.commit()
+    return {
+        "mantenido": keeper.id, "eliminado": body.eliminar_id,
+        "servicios_reasignados": n_servicios, "comisiones_reasignadas": n_comisiones,
+        "pagos_reasignados": n_pagos,
+    }
 
 
 # ---------- nómina (admin) ----------
@@ -1408,7 +1538,10 @@ def nomina_dashboard(
 
 
 @app.get("/api/config/{clave}")
-def obtener_config(clave: str, db: Session = Depends(get_db), _=Depends(require_permiso("nomina"))):
+def obtener_config(clave: str, db: Session = Depends(get_db), _=Depends(current_trabajador)):
+    """Lectura abierta a cualquier sesión válida — los valores de config (ej.
+    fecha de inicio predeterminada de los filtros) no son sensibles y los
+    necesita cualquier trabajador para que sus filtros arranquen bien."""
     c = db.get(Configuracion, clave)
     return {"clave": clave, "valor": c.valor if c else None}
 
@@ -1418,7 +1551,7 @@ class ConfigIn(BaseModel):
 
 
 @app.put("/api/config/{clave}")
-def guardar_config(clave: str, body: ConfigIn, db: Session = Depends(get_db), _=Depends(require_permiso("nomina"))):
+def guardar_config(clave: str, body: ConfigIn, db: Session = Depends(get_db), _=Depends(require_permiso_any("nomina", "configuracion"))):
     c = db.get(Configuracion, clave)
     if c:
         c.valor = body.valor
@@ -1506,7 +1639,8 @@ def importar_pagos_historicos(body: PagoHistoricoBatchIn, db: Session = Depends(
 @app.get("/api/estadisticas")
 def estadisticas(
     fecha_inicio: Optional[date] = None, fecha_fin: Optional[date] = None,
-    tipo: Optional[str] = None, db: Session = Depends(get_db), _=Depends(require_permiso("estadisticas")),
+    tipo: Optional[list[str]] = Query(None),
+    db: Session = Depends(get_db), _=Depends(require_permiso("estadisticas")),
 ):
     q = db.query(Servicio)
     if fecha_inicio:
@@ -1514,7 +1648,7 @@ def estadisticas(
     if fecha_fin:
         q = q.filter(Servicio.fecha <= fecha_fin)
     if tipo:
-        q = q.filter(Servicio.tipo == tipo)
+        q = q.filter(Servicio.tipo.in_(tipo))
     servicios = q.all()
 
     trabajador_nombres = {t.id: t.nombre for t in db.query(Trabajador).all()}
@@ -1560,7 +1694,7 @@ def buscar_servicios(
     fecha_inicio: Optional[date] = None, fecha_fin: Optional[date] = None,
     tipo_cita: Optional[str] = None, metodo_pago: Optional[str] = None,
     estatus: Optional[str] = None, estatus_comision: Optional[str] = None,  # pendiente | pagada
-    db: Session = Depends(get_db), _=Depends(require_permiso("estadisticas")),
+    db: Session = Depends(get_db), _=Depends(require_permiso_any("estadisticas", "seguimiento")),
 ):
     """Filtros combinables para armar cualquier tabla de servicios (ej. 'Taxes
     1040 de Erik de tal fecha a tal fecha, de cita remota, pendientes de pago
