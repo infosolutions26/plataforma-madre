@@ -708,26 +708,28 @@
           </div>
 
           <div class="panel">
-            <h2>Filtros avanzados</h2>
-            <p class="hint" style="margin:-4px 0 10px;">Combina cualquier filtro para armar la tabla exacta que necesites y expórtala a CSV.</p>
+            <h2>Filtros avanzados y seguimiento general</h2>
+            <p class="hint" style="margin:-4px 0 10px;">Combina cualquier filtro para armar la tabla exacta que necesites, expórtala a CSV, o haz clic en una fila para editar ese servicio directamente (ej. seguimiento de Taxes o Contabilidad en general, no solo lo tuyo).</p>
             <div class="field-row3">
               <div class="field"><label>Trabajador</label><select id="advTrabajador"><option value="">Todos</option></select></div>
+              <div class="field"><label>Línea</label><select id="advLinea">
+                <option value="">Todas</option><option>Taxes</option><option>Contabilidad</option><option>Capital</option><option>Otros servicios</option>
+              </select></div>
               <div class="field"><label>Tipo de servicio</label><select id="advTipo"><option value="">Todos</option></select></div>
-              <div class="field"><label>Método de pago</label><select id="advMetodo"><option value="">Todos</option></select></div>
             </div>
             <div class="field-row3">
+              <div class="field"><label>Método de pago</label><select id="advMetodo"><option value="">Todos</option></select></div>
               <div class="field"><label>Desde</label><input type="date" id="advDesde"></div>
               <div class="field"><label>Hasta</label><input type="date" id="advHasta"></div>
+            </div>
+            <div class="field-row3">
               <div class="field"><label>Tipo de cita</label><select id="advTipoCita">
                 <option value="">Todos</option><option>Presencial</option><option>Virtual</option><option>Llamada / mensaje</option>
               </select></div>
-            </div>
-            <div class="field-row3">
               <div class="field"><label>Estatus de pago</label><select id="advEstatus"><option value="">Todos</option></select></div>
               <div class="field"><label>Estatus de comisión</label><select id="advEstatusComision">
                 <option value="">Todos</option><option value="pendiente">Pendiente</option><option value="pagada">Pagada</option>
               </select></div>
-              <div></div>
             </div>
             <div style="display:flex; gap:8px;">
               <button class="btn primary small" id="btnAdvBuscar" type="button">Buscar</button>
@@ -1843,12 +1845,14 @@
       if (state.currentProfile && state.currentProfile.tipo === clienteTipo && state.currentProfile.id === clienteId) {
         renderProfileServices();
       }
+      if (document.getElementById("btnAdvBuscar").dataset.buscado) document.getElementById("btnAdvBuscar").click();
     }).catch(function(e){
       alert("No se pudo guardar: " + e.message);
     }).then(function(){
       btn.disabled = false;
     });
   });
+  document.getElementById("btnAdvBuscar").addEventListener("click", function(){ this.dataset.buscado = "1"; });
   document.getElementById("btnEliminarServicio").addEventListener("click", function(){
     if (!state.editingServiceId) return;
     if (!confirm("¿Eliminar este servicio? Esta acción no se puede deshacer.")) return;
@@ -1857,6 +1861,7 @@
       renderServiciosTable();
       renderClientTable();
       if (state.currentProfile) renderProfileServices();
+      if (document.getElementById("btnAdvBuscar").dataset.buscado) document.getElementById("btnAdvBuscar").click();
     }).catch(function(e){ alert("No se pudo eliminar: " + e.message); });
   });
 
@@ -2335,7 +2340,7 @@
   document.getElementById("btnAdvBuscar").addEventListener("click", function(){
     var params = new URLSearchParams();
     var map = {
-      advTrabajador: "trabajador_id", advTipo: "tipo", advMetodo: "metodo_pago",
+      advTrabajador: "trabajador_id", advLinea: "linea", advTipo: "tipo", advMetodo: "metodo_pago",
       advDesde: "fecha_inicio", advHasta: "fecha_fin", advTipoCita: "tipo_cita",
       advEstatus: "estatus", advEstatusComision: "estatus_comision",
     };
@@ -2349,11 +2354,12 @@
       tbody.innerHTML = "";
       if (!rows.length) { tbody.innerHTML = '<tr><td colspan="10"><p class="hint" style="padding:14px 0;">Sin resultados.</p></td></tr>'; return; }
       rows.forEach(function(r){
-        var tr = el("tr");
+        var tr = el("tr","row-click");
         tr.innerHTML =
           '<td>'+r.fecha+'</td><td>'+r.cliente+'</td><td>'+r.tipo+'</td><td>'+r.trabajador+'</td>' +
           '<td class="num">'+money(r.cobro)+'</td><td>'+(r.metodo_pago||"—")+'</td><td>'+statusPill(r.estatus)+'</td>' +
           '<td>'+(r.tipo_cita||"—")+'</td><td class="num">'+money(r.comision_monto)+'</td><td>'+(r.comision_estado||"—")+'</td>';
+        tr.addEventListener("click", function(){ openServicioModal(r.id, null); });
         tbody.appendChild(tr);
       });
     });
