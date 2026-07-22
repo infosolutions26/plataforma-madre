@@ -28,6 +28,7 @@ from models import (
     Empresa,
     EmpresaDueno,
     EstadoComision,
+    FeeAnualPago,
     NotaCliente,
     PagoNomina,
     PeriodoCustom,
@@ -405,6 +406,95 @@ def limpiar_archivos_drive(db: Session = Depends(get_db), _=Depends(require_admi
 
 
 # ---------- clientes ----------
+
+class FusionIn(BaseModel):
+    tipo: str  # persona | empresa
+    mantener_id: int
+    eliminar_ids: list[int]
+
+
+class FusionBatchIn(BaseModel):
+    fusiones: list[FusionIn]
+
+
+@app.post("/api/_fusionar_clientes")
+def fusionar_clientes(body: FusionBatchIn, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Fusiona clientes duplicados: reasigna servicios/notas/archivos del
+    duplicado al registro que se mantiene, rellena huecos de datos (SSN/EIN/
+    teléfono/correo/carpeta de Drive) desde el duplicado si el que se
+    mantiene no los tiene, y borra el duplicado. Si ambos ya son dueños de
+    la misma empresa (EmpresaDueno), no duplica esa relación — solo borra la
+    del duplicado. Endpoint temporal, se puede quitar después."""
+    resultados = []
+    for f in body.fusiones:
+        modelo = Persona if f.tipo == "persona" else Empresa
+        keeper = db.get(modelo, f.mantener_id)
+        if not keeper:
+            resultados.append({"error": "no existe mantener_id", "id": f.mantener_id})
+            continue
+        for dup_id in f.eliminar_ids:
+            if dup_id == f.mantener_id:
+                continue
+            dup = db.get(modelo, dup_id)
+            if not dup:
+                continue
+            if f.tipo == "persona":
+                db.query(Servicio).filter(Servicio.persona_id == dup_id).update({"persona_id": f.mantener_id})
+                db.query(NotaCliente).filter(NotaCliente.persona_id == dup_id).update({"persona_id": f.mantener_id})
+                db.query(Archivo).filter(Archivo.persona_id == dup_id).update({"persona_id": f.mantener_id})
+                for ed in db.query(EmpresaDueno).filter(EmpresaDueno.persona_id == dup_id).all():
+                    ya_existe = db.get(EmpresaDueno, {"persona_id": f.mantener_id, "empresa_id": ed.empresa_id})
+                    if ya_existe:
+                        db.delete(ed)
+                    else:
+                        ed.persona_id = f.mantener_id
+                if not keeper.ssn_encrypted and dup.ssn_encrypted:
+                    keeper.ssn_encrypted, keeper.ssn_last4 = dup.ssn_encrypted, dup.ssn_last4
+                if not keeper.telefono and dup.telefono:
+                    keeper.telefono = dup.telefono
+                if not keeper.correo and dup.correo:
+                    keeper.correo = dup.correo
+                if not keeper.drive_folder_id and dup.drive_folder_id:
+                    keeper.drive_folder_id = dup.drive_folder_id
+                if not keeper.ghl_contact_id and dup.ghl_contact_id:
+                    keeper.ghl_contact_id = dup.ghl_contact_id
+            else:
+                db.query(Servicio).filter(Servicio.empresa_id == dup_id).update({"empresa_id": f.mantener_id})
+                db.query(NotaCliente).filter(NotaCliente.empresa_id == dup_id).update({"empresa_id": f.mantener_id})
+                db.query(Archivo).filter(Archivo.empresa_id == dup_id).update({"empresa_id": f.mantener_id})
+                for fee in db.query(FeeAnualPago).filter(FeeAnualPago.empresa_id == dup_id).all():
+                    ya_existe = db.query(FeeAnualPago).filter(
+                        FeeAnualPago.empresa_id == f.mantener_id, FeeAnualPago.anio == fee.anio
+                    ).first()
+                    if ya_existe:
+                        db.delete(fee)
+                    else:
+                        fee.empresa_id = f.mantener_id
+                db.flush()
+                for ed in db.query(EmpresaDueno).filter(EmpresaDueno.empresa_id == dup_id).all():
+                    ya_existe = db.get(EmpresaDueno, {"persona_id": ed.persona_id, "empresa_id": f.mantener_id})
+                    if ya_existe:
+                        db.delete(ed)
+                    else:
+                        ed.empresa_id = f.mantener_id
+                if not keeper.ein and dup.ein:
+                    keeper.ein = dup.ein
+                if not keeper.telefono and dup.telefono:
+                    keeper.telefono = dup.telefono
+                if not keeper.correo and dup.correo:
+                    keeper.correo = dup.correo
+                if not keeper.giro and dup.giro:
+                    keeper.giro = dup.giro
+                if not keeper.drive_folder_id and dup.drive_folder_id:
+                    keeper.drive_folder_id = dup.drive_folder_id
+                if not keeper.ghl_contact_id and dup.ghl_contact_id:
+                    keeper.ghl_contact_id = dup.ghl_contact_id
+            db.flush()
+            db.delete(dup)
+            resultados.append({"tipo": f.tipo, "mantenido": f.mantener_id, "eliminado": dup_id})
+    db.commit()
+    return {"resultados": resultados}
+
 
 @app.get("/api/_export_clientes_dedup")
 def export_clientes_dedup(db: Session = Depends(get_db), _=Depends(require_admin)):
@@ -1445,7 +1535,7 @@ def estadisticas(
 
 @app.get("/api/reportes/servicios")
 def buscar_servicios(
-    trabajador_id: Optional[int] = None, tipo: Optional[str] = None,
+    trabajador_id: Optional[int] = None, tipo: Optional[str] = None, linea: Optional[str] = None,
     fecha_inicio: Optional[date] = None, fecha_fin: Optional[date] = None,
     tipo_cita: Optional[str] = None, metodo_pago: Optional[str] = None,
     estatus: Optional[str] = None, estatus_comision: Optional[str] = None,  # pendiente | pagada
@@ -1453,8 +1543,8 @@ def buscar_servicios(
 ):
     """Filtros combinables para armar cualquier tabla de servicios (ej. 'Taxes
     1040 de Erik de tal fecha a tal fecha, de cita remota, pendientes de pago
-    de comisión'). Alimenta la sección de filtros avanzados, exportable a CSV
-    desde el frontend."""
+    de comisión'). Alimenta la sección de filtros avanzados (exportable a CSV)
+    y el seguimiento general de servicios para admins."""
     q = db.query(Servicio)
     if trabajador_id:
         q = q.filter(Servicio.trabajador_id == trabajador_id)
@@ -1471,6 +1561,8 @@ def buscar_servicios(
     servicios = q.order_by(Servicio.fecha.desc()).all()
     if tipo_cita:
         servicios = [s for s in servicios if (s.detalle or {}).get("tipoCita") == tipo_cita]
+    if linea:
+        servicios = [s for s in servicios if linea_de(s.tipo) == linea]
 
     trabajador_nombres = {t.id: t.nombre for t in db.query(Trabajador).all()}
     comisiones_by_servicio = {c.servicio_id: c for c in db.query(Comision).filter(
@@ -1484,7 +1576,7 @@ def buscar_servicios(
             continue
         out.append({
             "id": s.id, "fecha": s.fecha.strftime("%m/%d/%Y"), "cliente": _nombre_cliente_servicio(db, s),
-            "tipo": s.tipo, "trabajador": trabajador_nombres.get(s.trabajador_id, "—"),
+            "tipo": s.tipo, "linea": linea_de(s.tipo), "trabajador": trabajador_nombres.get(s.trabajador_id, "—"),
             "cobro": float(s.cobro), "metodo_pago": s.metodo_pago, "estatus": s.estatus,
             "tipo_cita": (s.detalle or {}).get("tipoCita"),
             "comision_monto": float(comision.monto) if comision else 0,
