@@ -1031,8 +1031,11 @@
       if (!archivos.length) { files.innerHTML = '<p class="hint">Sin archivos todavía.</p>'; return; }
       archivos.forEach(function(f){
         var r = el("div","file-row");
+        var nameHtml = f.drive_url
+          ? '<a class="fname" href="'+f.drive_url+'" target="_blank" rel="noopener">'+f.nombre+'</a>'
+          : '<span class="fname">'+f.nombre+'</span>';
         r.innerHTML = '<span class="file-ic">' + (f.tipo === "foto" ? "📷" : "▤") + '</span>' +
-          '<span class="fname">'+f.nombre+'</span><span class="fmeta">'+(f.tipo==="foto"?"Foto tomada en la plataforma":"Subido a Drive")+'</span>';
+          nameHtml + '<span class="fmeta">'+(f.tipo==="foto"?"Foto tomada en la plataforma":(f.drive_url?"Abrir en Drive":"Sin archivo adjunto"))+'</span>';
         var rm = el("button","rm-btn","✕"); rm.type="button"; rm.style.fontSize="12px";
         rm.addEventListener("click", function(){ api("/api/archivos/" + f.id, {method:"DELETE"}).then(renderProfFiles); });
         r.appendChild(rm);
