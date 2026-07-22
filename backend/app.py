@@ -318,9 +318,9 @@ def normalizar_estatus_legacy(db: Session = Depends(get_db), _=Depends(require_a
     for s in db.query(Servicio).all():
         if not s.estatus:
             continue
+        if s.estatus in ("Pagado", "Pendiente de pago", "Cortesía", "Banco", "Banco Pagado", "Cancelado"):
+            continue  # ya es un valor válido del catálogo, con el casing correcto
         key = s.estatus.strip().lower()
-        if key in ("pagado", "pendiente de pago", "cortesía", "banco", "banco pagado", "cancelado"):
-            continue  # ya es un valor válido del catálogo
         nuevo = ESTATUS_NORMALIZA.get(key)
         if nuevo:
             s.estatus = nuevo
