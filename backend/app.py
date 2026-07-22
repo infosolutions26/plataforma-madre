@@ -866,6 +866,27 @@ class NotaClienteIn(BaseModel):
     texto: str
 
 
+@app.post("/api/_migrar_notas_servicio")
+def migrar_notas_servicio(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Las notas ya no viven en cada servicio por separado — se unifican en
+    las notas del cliente (NotaCliente), para no tener 'notas aquí y allá'.
+    Copia Servicio.notas (si trae texto) a una NotaCliente nueva, citando de
+    qué servicio venía, y limpia el campo original. Idempotente — un
+    servicio ya migrado (notas=None) no genera nada de nuevo. Endpoint
+    temporal, se puede quitar después."""
+    migradas = 0
+    for s in db.query(Servicio).filter(Servicio.notas.isnot(None), Servicio.notas != "").all():
+        db.add(NotaCliente(
+            persona_id=s.persona_id, empresa_id=s.empresa_id,
+            texto=f"[Nota migrada del servicio {s.tipo} del {s.fecha.strftime('%m/%d/%Y')}] {s.notas}",
+            trabajador_id=s.trabajador_id,
+        ))
+        s.notas = None
+        migradas += 1
+    db.commit()
+    return {"notas_migradas": migradas}
+
+
 @app.post("/api/notas")
 def crear_nota(body: NotaClienteIn, db: Session = Depends(get_db), trabajador: Trabajador = Depends(current_trabajador)):
     if not body.persona_id and not body.empresa_id:

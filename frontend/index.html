@@ -48,32 +48,10 @@
     --sidebar-hover: rgba(255,255,255,0.05);
     --sidebar-line: #1a2233;
   }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #0a0f1a;
-      --surface: #121a28;
-      --surface-2: #192335;
-      --surface-3: #0e1522;
-      --ink: #e6ebf3;
-      --ink-soft: #a7b2c6;
-      --ink-faint: #6c7891;
-      --line: #253046;
-      --accent: #6f9bcb;
-      --accent-soft: #1c2c42;
-      --accent-ink: #cfe0f2;
-      --warn: #d9a35d;
-      --warn-soft: #2e2415;
-      --crit: #e18077;
-      --crit-soft: #33201d;
-      --sidebar-bg: #060b13;
-      --sidebar-ink: #e7ecf3;
-      --sidebar-ink-soft: #6c7891;
-      --sidebar-active: #101a29;
-      --sidebar-active-ink: #ffffff;
-      --sidebar-hover: rgba(255,255,255,0.05);
-      --sidebar-line: #1a2233;
-    }
-  }
+  /* La marca es blanca/azul marino siempre — ya no se cambia automático a
+     oscuro según el sistema operativo (causaba bajo contraste sin que el
+     usuario lo pidiera). El bloque :root[data-theme="dark"] de arriba queda
+     como base por si más adelante se agrega un selector manual de tema. */
 
   * { box-sizing: border-box; }
   html, body { height: 100%; }
@@ -426,6 +404,7 @@
     <div class="navitem active" data-view="servicios"><span class="ic">☰</span> Servicios</div>
     <div class="navitem" data-view="buscador"><span class="ic">◧</span> Clientes</div>
     <div class="navitem" data-view="trabajadores"><span class="ic">◨</span> Trabajadores</div>
+    <div class="navitem" data-view="seguimiento"><span class="ic">◫</span> Seguimiento</div>
     <div class="navitem" data-view="nomina"><span class="ic">$</span> Nómina</div>
     <div class="navitem" data-view="stats"><span class="ic">▤</span> Estadísticas</div>
     <div class="sidebar-foot">
@@ -532,7 +511,6 @@
                   <thead><tr>
                     <th>Fecha</th><th>Servicio</th><th>Trabajador</th><th class="num">Cobro</th>
                     <th>Método</th><th>Estatus</th><th>Año</th><th>Tipo cita</th><th>Status taxes</th>
-                    <th>Comisión</th><th>Notas</th>
                   </tr></thead>
                   <tbody id="profServiceTaxesBody"></tbody>
                 </table>
@@ -544,7 +522,7 @@
                 <table>
                   <thead><tr>
                     <th>Fecha</th><th>Servicio</th><th>Trabajador</th><th class="num">Cobro</th>
-                    <th>Método</th><th>Estatus</th><th>Detalle</th><th>Comisión</th><th>Notas</th>
+                    <th>Método</th><th>Estatus</th><th>Detalle</th>
                   </tr></thead>
                   <tbody id="profServiceOtrosBody"></tbody>
                 </table>
@@ -636,6 +614,48 @@
               <table>
                 <thead><tr><th>Semana (lunes)</th><th>Trabajador</th><th class="num">Monto</th></tr></thead>
                 <tbody id="dashSemanaBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= SEGUIMIENTO (admins) ================= -->
+      <section class="view" id="view-seguimiento">
+        <div id="seguimientoLocked" class="locked-box" style="display:none;">
+          <div class="ic">🔒</div>
+          <div><strong>No tienes acceso a Seguimiento.</strong></div>
+          <div class="hint">Solo Admin o quien tenga el permiso puede ver esta sección.</div>
+        </div>
+        <div id="seguimientoContent">
+          <h1 class="page-title">Seguimiento de servicios</h1>
+          <p class="page-sub">Todos los servicios de todos los trabajadores, agrupados por línea — no solo los tuyos. Clic en una fila para editar ese servicio directamente.</p>
+
+          <div class="panel">
+            <div class="field-row3">
+              <div class="field"><label>Línea</label><select id="segLinea">
+                <option value="Taxes">Taxes</option><option value="Contabilidad">Contabilidad</option>
+                <option value="Capital">Capital</option><option value="Otros servicios">Otros servicios</option>
+                <option value="">Todas</option>
+              </select></div>
+              <div class="field"><label>Trabajador</label><select id="segTrabajador"><option value="">Todos</option></select></div>
+              <div class="field"><label>Estatus de pago</label><select id="segEstatus"><option value="">Todos</option></select></div>
+            </div>
+            <div class="field-row3">
+              <div class="field"><label>Desde</label><input type="date" id="segDesde"></div>
+              <div class="field"><label>Hasta</label><input type="date" id="segHasta"></div>
+              <div class="field" style="justify-content:flex-end; display:flex; flex-direction:row; align-items:flex-end;">
+                <button class="btn primary small" id="btnSegBuscar" type="button" style="width:100%;">Buscar</button>
+              </div>
+            </div>
+            <div class="table-wrap" style="margin-top:10px;">
+              <table>
+                <thead><tr>
+                  <th>Fecha</th><th>Cliente</th><th>Servicio</th><th>Trabajador</th>
+                  <th class="num">Cobro</th><th>Método</th><th>Estatus</th>
+                  <th class="num">Comisión</th><th>Estado comisión</th>
+                </tr></thead>
+                <tbody id="segResultBody"></tbody>
               </table>
             </div>
           </div>
@@ -784,8 +804,7 @@
         </select></div>
         <div class="field"><label>Estatus de pago</label><select id="svcEstatus"></select></div>
       </div>
-      <p class="hint">Es el estatus de cobro. El progreso del trámite (para Taxes) se actualiza en "Status taxes" arriba.</p>
-      <div class="field"><label>Notas</label><textarea id="svcNotas" rows="2"></textarea></div>
+      <p class="hint">Es el estatus de cobro. El progreso del trámite (para Taxes) se actualiza en "Status taxes" arriba. Las notas de este cliente se llevan todas juntas en su perfil, en la sección Notas.</p>
 
       <div class="divider-lbl">Documentos (Google Drive)</div>
       <p class="hint" id="svcDocsHint">Guarda el servicio primero para poder subir documentos.</p>
@@ -1079,6 +1098,7 @@
       if (n.dataset.view === "trabajadores") renderWorkers();
       if (n.dataset.view === "stats") renderStats();
       if (n.dataset.view === "nomina") renderNomina();
+      if (n.dataset.view === "seguimiento") renderSeguimiento();
     });
   });
 
@@ -1124,11 +1144,14 @@
       : "Solo ves tus propios clientes (a los que les has hecho un servicio) y tus tipos de servicio configurados.";
     document.querySelector('.navitem[data-view="nomina"]').classList.toggle("hidden", !puedeNomina);
     document.querySelector('.navitem[data-view="stats"]').classList.toggle("hidden", !puedeStats);
+    document.querySelector('.navitem[data-view="seguimiento"]').classList.toggle("hidden", !puedeStats);
     document.querySelector('.navitem[data-view="trabajadores"]').classList.toggle("hidden", !puedeTrabajadores);
     document.getElementById("nominaLocked").style.display = puedeNomina ? "none" : "block";
     document.getElementById("nominaContent").style.display = puedeNomina ? "block" : "none";
     document.getElementById("statsLocked").style.display = puedeStats ? "none" : "block";
     document.getElementById("statsContent").style.display = puedeStats ? "block" : "none";
+    document.getElementById("seguimientoLocked").style.display = puedeStats ? "none" : "block";
+    document.getElementById("seguimientoContent").style.display = puedeStats ? "block" : "none";
     showView("servicios");
     renderServiciosTable();
   }
@@ -1408,19 +1431,6 @@
     }, "image/jpeg", 0.92);
   });
 
-  function escapeHtml(s){
-    return String(s==null?"":s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-  }
-  function comisionCellHtml(s){
-    if (!s.comisiones || !s.comisiones.length) return "—";
-    var c = s.comisiones[0];
-    return money(c.monto) + " " + (c.estado === "pagada" ? '<span class="pill ok">pagada</span>' : '<span class="pill warn">pendiente</span>');
-  }
-  function notasCellHtml(s){
-    if (!s.notas) return "—";
-    var corta = s.notas.length > 40 ? s.notas.slice(0,40) + "…" : s.notas;
-    return '<span title="'+escapeHtml(s.notas)+'">'+escapeHtml(corta)+'</span>';
-  }
   function detalleTexto(tipo, detalle){
     var conf = SERVICE_TYPES[tipo];
     if (!conf || !detalle) return "—";
@@ -1454,8 +1464,7 @@
           tr.innerHTML =
             '<td>'+fmtFecha(s.fecha)+'</td><td>'+s.tipo+'</td><td>'+s.trabajador+'</td><td class="num">'+money(s.cobro)+'</td>' +
             '<td>'+(s.metodo_pago||"—")+'</td><td>'+statusPill(s.estatus)+'</td>' +
-            '<td>'+(d.anio||"—")+'</td><td>'+(d.tipoCita||"—")+'</td><td>'+(d.statusTaxes||"—")+'</td>' +
-            '<td>'+comisionCellHtml(s)+'</td><td>'+notasCellHtml(s)+'</td>';
+            '<td>'+(d.anio||"—")+'</td><td>'+(d.tipoCita||"—")+'</td><td>'+(d.statusTaxes||"—")+'</td>';
           tr.addEventListener("click", function(){ openServicioModal(s.id, null); });
           taxesBody.appendChild(tr);
         });
@@ -1467,7 +1476,7 @@
           tr.innerHTML =
             '<td>'+fmtFecha(s.fecha)+'</td><td>'+s.tipo+'</td><td>'+s.trabajador+'</td><td class="num">'+money(s.cobro)+'</td>' +
             '<td>'+(s.metodo_pago||"—")+'</td><td>'+statusPill(s.estatus)+'</td>' +
-            '<td>'+detalleTexto(s.tipo, s.detalle)+'</td><td>'+comisionCellHtml(s)+'</td><td>'+notasCellHtml(s)+'</td>';
+            '<td>'+detalleTexto(s.tipo, s.detalle)+'</td>';
           tr.addEventListener("click", function(){ openServicioModal(s.id, null); });
           otrosBody.appendChild(tr);
         });
@@ -1785,7 +1794,6 @@
         document.getElementById("svcCobro").value = editing ? editing.cobro : "";
         document.getElementById("svcMetodo").value = editing ? (editing.metodo_pago||"Zelle") : "Zelle";
         renderEstatusPago(editing ? editing.estatus : null);
-        document.getElementById("svcNotas").value = editing ? (editing.notas||"") : "";
 
         document.getElementById("svcUploadStatus").textContent = "";
         actualizarBotonesDocsServicio();
@@ -1825,7 +1833,6 @@
       cobro: Number(document.getElementById("svcCobro").value)||0,
       metodo_pago: document.getElementById("svcMetodo").value,
       estatus: document.getElementById("svcEstatus").value,
-      notas: document.getElementById("svcNotas").value,
       trabajador_id: getAssignedTrabajadorId(),
       detalle: collectDetalle()
     };
@@ -1846,6 +1853,7 @@
         renderProfileServices();
       }
       if (document.getElementById("btnAdvBuscar").dataset.buscado) document.getElementById("btnAdvBuscar").click();
+      if (state.segCatalogosCargados) buscarSeguimiento();
     }).catch(function(e){
       alert("No se pudo guardar: " + e.message);
     }).then(function(){
@@ -1862,6 +1870,7 @@
       renderClientTable();
       if (state.currentProfile) renderProfileServices();
       if (document.getElementById("btnAdvBuscar").dataset.buscado) document.getElementById("btnAdvBuscar").click();
+      if (state.segCatalogosCargados) buscarSeguimiento();
     }).catch(function(e){ alert("No se pudo eliminar: " + e.message); });
   });
 
@@ -2298,6 +2307,48 @@
       });
     });
   }
+  // ---------- seguimiento (admins) ----------
+  function cargarCatalogosSeguimiento(){
+    if (state.segCatalogosCargados) return Promise.resolve();
+    state.segCatalogosCargados = true;
+    return api("/api/trabajadores/basico").then(function(trabajadores){
+      var sel = document.getElementById("segTrabajador");
+      trabajadores.forEach(function(t){
+        var opt = document.createElement("option");
+        opt.value = t.id; opt.textContent = t.nombre;
+        sel.appendChild(opt);
+      });
+      poblarSelect(document.getElementById("segEstatus"), ESTATUS_PAGO_TODOS);
+    });
+  }
+  function renderSeguimiento(){
+    cargarCatalogosSeguimiento().then(buscarSeguimiento);
+  }
+  function buscarSeguimiento(){
+    var params = new URLSearchParams();
+    var map = {segLinea: "linea", segTrabajador: "trabajador_id", segEstatus: "estatus", segDesde: "fecha_inicio", segHasta: "fecha_fin"};
+    Object.keys(map).forEach(function(id){
+      var v = document.getElementById(id).value;
+      if (v) params.set(map[id], v);
+    });
+    var tbody = document.getElementById("segResultBody");
+    tbody.innerHTML = '<tr><td colspan="9"><p class="hint" style="padding:14px 0;">Cargando…</p></td></tr>';
+    api("/api/reportes/servicios?" + params.toString()).then(function(rows){
+      tbody.innerHTML = "";
+      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="9"><p class="hint" style="padding:14px 0;">Sin resultados.</p></td></tr>'; return; }
+      rows.forEach(function(r){
+        var tr = el("tr","row-click");
+        tr.innerHTML =
+          '<td>'+r.fecha+'</td><td>'+r.cliente+'</td><td>'+r.tipo+'</td><td>'+r.trabajador+'</td>' +
+          '<td class="num">'+money(r.cobro)+'</td><td>'+(r.metodo_pago||"—")+'</td><td>'+statusPill(r.estatus)+'</td>' +
+          '<td class="num">'+money(r.comision_monto)+'</td><td>'+(r.comision_estado||"—")+'</td>';
+        tr.addEventListener("click", function(){ openServicioModal(r.id, null); });
+        tbody.appendChild(tr);
+      });
+    });
+  }
+  document.getElementById("btnSegBuscar").addEventListener("click", buscarSeguimiento);
+
   document.getElementById("btnStatsFiltrar").addEventListener("click", renderStats);
   document.getElementById("btnStatsLimpiar").addEventListener("click", function(){
     document.getElementById("statsFechaInicio").value = "";
