@@ -295,6 +295,33 @@ def asociar_archivos_drive(body: DriveMatchBatchIn, db: Session = Depends(get_db
     return {"asociados": asociados, "ambiguos": ambiguos, "sin_match": sin_match}
 
 
+@app.post("/api/_limpiar_archivos_drive")
+def limpiar_archivos_drive(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Corrige dos problemas detectados tras la asociación masiva de carpetas
+    de Drive: (1) filas duplicadas de Archivo cuando el mismo lote se corrió
+    dos veces (mismo persona_id + drive_url), y (2) un match incorrecto
+    causado por un SSN placeholder ('000-00-0001') compartido entre dos
+    personas distintas, que asoció la carpeta de un cliente al expediente de
+    otro. Endpoint temporal, se puede quitar después."""
+    duplicados_borrados = []
+    vistos = {}
+    for a in db.query(Archivo).filter(Archivo.drive_url.isnot(None)).order_by(Archivo.id).all():
+        key = (a.persona_id, a.empresa_id, a.drive_url)
+        if key in vistos:
+            duplicados_borrados.append({"id": a.id, "persona_id": a.persona_id, "nombre": a.nombre})
+            db.delete(a)
+        else:
+            vistos[key] = a.id
+
+    placeholder_borrados = []
+    for a in db.query(Archivo).filter(Archivo.nombre.like("%000-00-0001%")).all():
+        placeholder_borrados.append({"id": a.id, "persona_id": a.persona_id, "nombre": a.nombre})
+        db.delete(a)
+
+    db.commit()
+    return {"duplicados_borrados": duplicados_borrados, "placeholder_borrados": placeholder_borrados}
+
+
 # ---------- clientes ----------
 
 class ClienteIn(BaseModel):
