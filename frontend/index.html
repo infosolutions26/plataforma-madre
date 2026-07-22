@@ -491,7 +491,9 @@
               <div class="kv" id="profKv"></div>
             </div>
             <div class="panel">
-              <h2>Archivos (Google Drive)</h2>
+              <div class="h2row"><h2>Archivos (Google Drive)</h2>
+                <a class="btn small" id="btnAbrirEnDrive" href="#" target="_blank" rel="noopener" style="display:none;">Abrir en Drive ↗</a>
+              </div>
               <div id="profFilesBreadcrumb" class="hint" style="margin-bottom:6px;"></div>
               <div id="profFiles"></div>
               <div class="attach-row" style="margin-top:10px;">
@@ -559,26 +561,34 @@
           <p class="page-sub">Una comisión solo cuenta como debida cuando el servicio que la generó está "Pagado" o "Banco Pagado" — nunca se paga una comisión de un servicio que el cliente todavía no ha pagado.</p>
 
           <div class="panel">
-            <div class="h2row"><h2>Pagar a un trabajador</h2></div>
+            <div class="h2row"><h2>Trabajadores activos</h2></div>
             <div class="table-wrap" style="border:none;">
               <table>
                 <thead><tr>
                   <th>Trabajador</th><th>Tipo de pago</th><th class="num">Sueldo sugerido</th>
                   <th class="num">Comisiones listas</th><th class="num">En espera de cliente</th>
-                  <th class="num">Total sugerido</th><th></th>
+                  <th class="num">Total sugerido</th><th>Último pago</th>
                 </tr></thead>
                 <tbody id="nominaResumenBody"></tbody>
               </table>
+            </div>
+            <div style="margin-top:14px;">
+              <button class="btn primary" id="btnNuevoPago" type="button">+ Nuevo pago</button>
             </div>
           </div>
 
           <div class="panel">
             <div class="h2row"><h2>Historial por trabajador</h2></div>
-            <div class="field" style="max-width:320px;"><label>Trabajador</label><select id="histTrabajadorSelect"></select></div>
+            <div class="field-row3">
+              <div class="field"><label>Trabajador</label><select id="histTrabajadorSelect"></select></div>
+              <div class="field"><label>Desde</label><input type="date" id="histFechaInicio"></div>
+              <div class="field"><label>Hasta</label><input type="date" id="histFechaFin"></div>
+            </div>
             <div class="table-wrap" style="border:none; margin-top:10px;">
               <table>
                 <thead><tr><th>Fecha</th><th>Tipo</th><th class="num">Monto</th><th># servicios</th><th>Concepto</th><th>Recibo</th></tr></thead>
                 <tbody id="nominaHistorialBody"></tbody>
+                <tfoot><tr style="font-weight:700;"><td colspan="2">Total pagado</td><td class="num" id="histTotalPagado">$0</td><td colspan="3"></td></tr></tfoot>
               </table>
             </div>
             <div id="nominaHistorialDetalle" style="margin-top:10px;"></div>
@@ -818,11 +828,14 @@
       </div>
       <p class="hint" id="trbHintNuevo">Todo trabajador nuevo ve solo Clientes y los servicios que le configures abajo — Nómina, Trabajadores y Estadísticas son exclusivos del Admin. El correo y la contraseña son con lo que inicia sesión.</p>
       <div class="divider-lbl">Cómo se le paga</div>
-      <div class="field-row">
+      <div class="field-row3">
         <div class="field"><label>Tipo de pago</label><select id="trbTipoPago">
           <option value="comision">Solo comisión</option><option value="sueldo">Solo sueldo fijo</option><option value="mixto">Mixto (sueldo + comisión)</option>
         </select></div>
         <div class="field"><label>Sueldo fijo semanal</label><input type="number" id="trbSueldoFijo" placeholder="0"></div>
+        <div class="field"><label>Estado</label><select id="trbActivo">
+          <option value="true">Activo</option><option value="false">Inactivo</option>
+        </select></div>
       </div>
       <div class="divider-lbl">Servicios que da y % / monto por defecto</div>
       <div id="trbConfigRows"></div>
@@ -855,8 +868,9 @@
 <!-- ============ MODAL: pagar nómina ============ -->
 <div class="overlay" id="overlayPagarNomina">
   <div class="modal" style="max-width:640px;">
-    <div class="modal-head"><h2 id="pagoModalTitle">Pagar a trabajador</h2><button class="btn ghost small" data-close>✕</button></div>
+    <div class="modal-head"><h2 id="pagoModalTitle">Nuevo pago</h2><button class="btn ghost small" data-close>✕</button></div>
     <div class="modal-body">
+      <div class="field"><label>Trabajador</label><select id="pagoTrabajadorSelect"></select></div>
       <div class="field-row">
         <div class="field"><label>Sueldo fijo</label><input type="number" id="pagoSueldo" placeholder="0"></div>
         <div class="field"><label>Comisiones listas para pagar</label><div class="field-fixed" id="pagoComisionesTotal">$0</div></div>
@@ -1138,6 +1152,7 @@
     state.currentProfile = {tipo: tipo, id: id};
     state.docFolderStack = [];
     api("/api/clientes/" + tipo + "/" + id).then(function(c){
+      state.currentProfile.rootFolderId = c.drive_folder_id || null;
       document.getElementById("profAvatar").textContent = tipo==="empresa" ? "⌂" : initials(c.nombre);
       document.getElementById("profAvatar").className = "avatar" + (tipo==="empresa" ? " emp" : "");
       document.getElementById("profName").textContent = c.nombre;
@@ -1212,6 +1227,13 @@
       });
     });
   }
+  function refrescarRootFolderIdSiHaceFalta(){
+    if (state.currentProfile.rootFolderId) return Promise.resolve();
+    var tipo = state.currentProfile.tipo, id = state.currentProfile.id;
+    return api("/api/clientes/" + tipo + "/" + id).then(function(c){
+      state.currentProfile.rootFolderId = c.drive_folder_id || null;
+    });
+  }
   function renderProfFiles(){
     var files = document.getElementById("profFiles");
     files.innerHTML = '<p class="hint">Cargando…</p>';
@@ -1219,6 +1241,14 @@
     var tipo = state.currentProfile.tipo, id = state.currentProfile.id;
     var folderActual = state.docFolderStack.length ? state.docFolderStack[state.docFolderStack.length - 1].id : null;
     var url = "/api/clientes/" + tipo + "/" + id + "/documentos" + (folderActual ? ("?folder_id=" + encodeURIComponent(folderActual)) : "");
+    var abrirBtn = document.getElementById("btnAbrirEnDrive");
+    var folderParaAbrir = folderActual || state.currentProfile.rootFolderId;
+    if (folderParaAbrir) {
+      abrirBtn.href = "https://drive.google.com/drive/folders/" + folderParaAbrir;
+      abrirBtn.style.display = "";
+    } else {
+      abrirBtn.style.display = "none";
+    }
     api(url).then(function(res){
       files.innerHTML = "";
       if (!res.tiene_carpeta || !res.archivos.length) {
@@ -1245,7 +1275,7 @@
     var tipo = state.currentProfile.tipo, id = state.currentProfile.id;
     var parent = state.docFolderStack.length ? state.docFolderStack[state.docFolderStack.length - 1].id : null;
     api("/api/clientes/" + tipo + "/" + id + "/carpetas", {method:"POST", body: {nombre: nombre.trim(), parent_folder_id: parent}})
-      .then(function(){ renderProfFiles(); })
+      .then(function(){ return refrescarRootFolderIdSiHaceFalta(); }).then(renderProfFiles)
       .catch(function(e){ alert("No se pudo crear la carpeta: " + e.message); });
   });
   function openDocPreview(f){
@@ -1283,7 +1313,7 @@
         return uploadFile("/api/clientes/" + tipo + "/" + id + "/documentos", fd);
       });
     });
-    chain.then(function(){ input.value = ""; renderProfFiles(); })
+    chain.then(function(){ input.value = ""; return refrescarRootFolderIdSiHaceFalta(); }).then(renderProfFiles)
       .catch(function(e){ alert("No se pudo subir: " + e.message); input.value = ""; });
   });
   function stopCameraProfile(){
@@ -1321,7 +1351,7 @@
       fd.append("file", blob, "Foto - " + new Date().toLocaleTimeString() + ".jpg");
       if (folderActual) fd.append("folder_id", folderActual);
       uploadFile("/api/clientes/" + tipo + "/" + id + "/documentos", fd).then(function(){
-        renderProfFiles();
+        refrescarRootFolderIdSiHaceFalta().then(renderProfFiles);
         stopCameraProfile();
       }).catch(function(e){ alert("No se pudo subir la foto: " + e.message); });
     }, "image/jpeg", 0.92);
@@ -1771,23 +1801,36 @@
       wrap.innerHTML = "";
       workers.forEach(function(w){
         var card = el("div","worker-card");
+        if (w.activo === false) card.style.opacity = "0.55";
         var chipsHtml = (w.config_servicios||[]).map(function(cfg){
           return '<span class="config-chip">' + cfg.tipo + ' <span class="pct">' + cfg.pct + '%</span></span>';
         }).join("");
         card.innerHTML =
           '<div class="worker-top"><div class="worker-name"><span class="avatar">' + initials(w.nombre) + '</span>' + w.nombre +
-          (w.rol==="admin" ? ' <span class="perm-chip on">admin</span>' : '') + '</div>' +
+          (w.rol==="admin" ? ' <span class="perm-chip on">admin</span>' : '') +
+          (w.activo === false ? ' <span class="perm-chip" style="background:var(--crit); color:#fff;">inactivo</span>' : '') + '</div>' +
           '<div style="display:flex; align-items:center; gap:10px;"><span class="hint">' + w.correo + '</span></div></div>' +
           '<div style="margin-top:8px;">' + (chipsHtml || '<span class="hint">Sin servicios configurados</span>') + '</div>';
         var actions = el("div"); actions.style.cssText = "margin-top:10px; display:flex; gap:8px;";
         var editBtn = el("button","btn small","Editar"); editBtn.type="button";
         editBtn.addEventListener("click", function(){ openTrabajadorModal(w.id, w); });
-        var delBtn = el("button","btn small","Eliminar"); delBtn.type="button"; delBtn.style.color="var(--crit)";
-        delBtn.addEventListener("click", function(){
-          if (!confirm('¿Eliminar a ' + w.nombre + '? Sus servicios y comisiones históricas se quedan, solo deja de poder loguearse.')) return;
-          api("/api/trabajadores/" + w.id, {method:"DELETE"}).then(renderWorkers);
-        });
-        actions.appendChild(editBtn); actions.appendChild(delBtn);
+        actions.appendChild(editBtn);
+        if (w.activo === false) {
+          var reactBtn = el("button","btn small ok","Reactivar"); reactBtn.type="button";
+          reactBtn.addEventListener("click", function(){
+            var body = {nombre: w.nombre, correo: w.correo, rol: "trabajador", config_servicios: w.config_servicios||[],
+              tipo_pago: w.tipo_pago, sueldo_fijo: w.sueldo_fijo||0, activo: true};
+            api("/api/trabajadores/" + w.id, {method:"PUT", body: body}).then(renderWorkers);
+          });
+          actions.appendChild(reactBtn);
+        } else {
+          var delBtn = el("button","btn small","Desactivar"); delBtn.type="button"; delBtn.style.color="var(--crit)";
+          delBtn.addEventListener("click", function(){
+            if (!confirm('¿Desactivar a ' + w.nombre + '? Sus servicios y comisiones históricas se quedan, solo deja de poder loguearse ni aparecer en nómina. Se puede reactivar después.')) return;
+            api("/api/trabajadores/" + w.id, {method:"DELETE"}).then(renderWorkers);
+          });
+          actions.appendChild(delBtn);
+        }
         card.appendChild(actions);
         wrap.appendChild(card);
       });
@@ -1815,6 +1858,7 @@
     document.getElementById("trbHintNuevo").style.display = editing ? "none" : "";
     document.getElementById("trbTipoPago").value = editing ? editing.tipo_pago : "comision";
     document.getElementById("trbSueldoFijo").value = editing ? (editing.sueldo_fijo || 0) : 0;
+    document.getElementById("trbActivo").value = editing ? String(editing.activo !== false) : "true";
     var rows = document.getElementById("trbConfigRows");
     rows.innerHTML = "";
     if (editing && editing.config_servicios && editing.config_servicios.length) {
@@ -1844,6 +1888,7 @@
       nombre: nombre, correo: correo, rol: "trabajador", config_servicios: config, password: password || null,
       tipo_pago: document.getElementById("trbTipoPago").value,
       sueldo_fijo: Number(document.getElementById("trbSueldoFijo").value) || 0,
+      activo: document.getElementById("trbActivo").value === "true",
     };
     var btn = this;
     btn.disabled = true;
@@ -1867,8 +1912,10 @@
     cargarDashFechaInicio();
   }
 
+  state.nominaResumenRows = [];
   function renderNominaResumen(){
-    api("/api/nomina/resumen").then(function(rows){
+    return api("/api/nomina/resumen").then(function(rows){
+      state.nominaResumenRows = rows;
       var tbody = document.getElementById("nominaResumenBody");
       tbody.innerHTML = "";
       if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7"><p class="hint" style="padding:14px 0;">Sin trabajadores activos.</p></td></tr>'; return; }
@@ -1879,20 +1926,33 @@
           '<td class="num">'+money(r.sueldo_sugerido)+'</td>' +
           '<td class="num">'+money(r.comisiones_monto)+' ('+r.comisiones_n+')</td>' +
           '<td class="num">'+money(r.en_espera_monto)+' ('+r.en_espera_n+')</td>' +
-          '<td class="num" style="font-weight:700;">'+money(r.total_sugerido)+'</td><td></td>';
-        var btn = el("button","btn small primary","Pagar");
-        btn.type = "button";
-        btn.disabled = r.total_sugerido <= 0;
-        btn.addEventListener("click", function(){ abrirModalPago(r); });
-        tr.lastElementChild.appendChild(btn);
+          '<td class="num" style="font-weight:700;">'+money(r.total_sugerido)+'</td>' +
+          '<td>'+(r.ultimo_pago ? fmtFecha(r.ultimo_pago) : '<span class="hint">Sin pagos</span>')+'</td>';
         tbody.appendChild(tr);
       });
     });
   }
+  document.getElementById("btnNuevoPago").addEventListener("click", function(){
+    if (!state.nominaResumenRows.length) { alert("No hay trabajadores activos."); return; }
+    var sel = document.getElementById("pagoTrabajadorSelect");
+    sel.innerHTML = "";
+    state.nominaResumenRows.forEach(function(r){
+      var opt = document.createElement("option");
+      opt.value = r.trabajador_id; opt.textContent = r.trabajador + " — total sugerido " + money(r.total_sugerido);
+      sel.appendChild(opt);
+    });
+    document.getElementById("pagoModalTitle").textContent = "Nuevo pago";
+    cargarDatosPago(sel.value);
+    openModal("overlayPagarNomina");
+  });
+  document.getElementById("pagoTrabajadorSelect").addEventListener("change", function(){
+    cargarDatosPago(this.value);
+  });
 
   state.pagoActual = null;
-  function abrirModalPago(resumenRow){
-    document.getElementById("pagoModalTitle").textContent = "Pagar a " + resumenRow.trabajador;
+  function cargarDatosPago(trabajadorId){
+    var resumenRow = state.nominaResumenRows.filter(function(r){ return String(r.trabajador_id) === String(trabajadorId); })[0];
+    if (!resumenRow) return;
     document.getElementById("pagoSueldo").value = resumenRow.sueldo_sugerido || 0;
     document.getElementById("pagoExtraMonto").value = 0;
     document.getElementById("pagoExtraConcepto").value = "";
@@ -1916,7 +1976,6 @@
         ? '<p class="hint">'+d.en_espera.length+' servicio(s) más ('+money(d.en_espera.reduce(function(a,c){return a+c.monto;},0))+') en espera de que el cliente pague — no se incluyen en este pago.</p>'
         : "";
     });
-    openModal("overlayPagarNomina");
   }
   function actualizarTotalPago(){
     var sueldo = Number(document.getElementById("pagoSueldo").value) || 0;
@@ -1953,22 +2012,31 @@
     if (sel.dataset.cargado) { renderHistorialTrabajador(); return Promise.resolve(); }
     return api("/api/trabajadores/basico").then(function(trabs){
       sel.dataset.cargado = "1";
-      trabs.forEach(function(t){
+      trabs.filter(function(t){ return t.nombre !== "Histórico / Sin preparador"; }).forEach(function(t){
         var opt = document.createElement("option");
         opt.value = t.id; opt.textContent = t.nombre;
         sel.appendChild(opt);
       });
       sel.addEventListener("change", renderHistorialTrabajador);
-      if (trabs.length) renderHistorialTrabajador();
+      document.getElementById("histFechaInicio").addEventListener("change", renderHistorialTrabajador);
+      document.getElementById("histFechaFin").addEventListener("change", renderHistorialTrabajador);
+      if (sel.options.length) renderHistorialTrabajador();
     });
   }
   function renderHistorialTrabajador(){
     var id = document.getElementById("histTrabajadorSelect").value;
     if (!id) return;
-    api("/api/nomina/" + id + "/historial").then(function(pagos){
+    var params = new URLSearchParams();
+    var fi = document.getElementById("histFechaInicio").value;
+    var ff = document.getElementById("histFechaFin").value;
+    if (fi) params.set("fecha_inicio", fi);
+    if (ff) params.set("fecha_fin", ff);
+    api("/api/nomina/" + id + "/historial?" + params.toString()).then(function(pagos){
       var tbody = document.getElementById("nominaHistorialBody");
       tbody.innerHTML = "";
       document.getElementById("nominaHistorialDetalle").innerHTML = "";
+      var total = pagos.reduce(function(a,p){ return a+p.monto; }, 0);
+      document.getElementById("histTotalPagado").textContent = money(total);
       if (!pagos.length) { tbody.innerHTML = '<tr><td colspan="6"><p class="hint" style="padding:14px 0;">Sin pagos registrados.</p></td></tr>'; return; }
       pagos.forEach(function(p){
         var tr = el("tr","row-click");
@@ -1976,7 +2044,7 @@
           '<td>'+fmtFecha(p.fecha)+'</td><td>'+(p.tipo==="ajuste_inicial"?"Ajuste inicial":"Pago")+'</td>' +
           '<td class="num">'+money(p.monto)+'</td><td class="num">'+p.n_servicios+'</td>' +
           '<td>'+(p.concepto||p.extra_concepto||"—")+'</td>' +
-          '<td>'+(p.drive_url ? '<a href="'+p.drive_url+'" target="_blank" rel="noopener">Ver</a>' : "—")+'</td>';
+          '<td>'+(p.drive_url ? '<a href="'+p.drive_url+'" target="_blank" rel="noopener">Ver recibo</a>' : '<span class="hint">Sin recibo</span>')+'</td>';
         tr.addEventListener("click", function(){ mostrarDetallePago(p); });
         tbody.appendChild(tr);
       });

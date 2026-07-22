@@ -237,9 +237,11 @@ def import_servicios(body: ImportServiciosIn, db: Session = Depends(get_db), _=D
 METODO_PAGO_NORMALIZA = {
     "zelle": "Zelle", "cash": "Cash", "card": "Card",
     "card - square": "Card - Square", "card - chase": "Card - Chase", "card - solutions": "Card - Solutions",
-    "banco": "Banco", "banco sta barbara": "Banco Sta Barbara",
+    "banco": "Banco", "banco sta barbara": "Banco Sta Barbara", "banco pagado": "Banco Pagado",
     "cortesia / referidos": "Cortesía / Referidos", "cortesia/referidos": "Cortesía / Referidos",
     "cortesia": "Cortesía / Referidos",
+    "cortesía / referidos": "Cortesía / Referidos", "cortesía/referidos": "Cortesía / Referidos",
+    "cortesía": "Cortesía / Referidos",
 }
 TIPO_CITA_NORMALIZA = {
     "presencial": "Presencial", "virtual": "Virtual", "llamada / mensaje": "Llamada / mensaje",
@@ -459,7 +461,7 @@ def perfil_cliente(tipo: str, cliente_id: int, db: Session = Depends(get_db), _=
         return {
             "tipo": "persona", "id": c.id, "nombre": c.nombre, "telefono": c.telefono,
             "correo": c.correo, "ssn_last4": c.ssn_last4, "actividad": c.actividad,
-            "ghl_contact_id": c.ghl_contact_id,
+            "ghl_contact_id": c.ghl_contact_id, "drive_folder_id": c.drive_folder_id,
         }
     elif tipo == "empresa":
         c = db.get(Empresa, cliente_id)
@@ -468,7 +470,7 @@ def perfil_cliente(tipo: str, cliente_id: int, db: Session = Depends(get_db), _=
         return {
             "tipo": "empresa", "id": c.id, "nombre": c.nombre, "giro": c.giro, "ein": c.ein,
             "telefono": c.telefono, "correo": c.correo, "actividad": c.actividad,
-            "ghl_contact_id": c.ghl_contact_id,
+            "ghl_contact_id": c.ghl_contact_id, "drive_folder_id": c.drive_folder_id,
         }
     raise HTTPException(status_code=400)
 
@@ -846,6 +848,7 @@ class TrabajadorIn(BaseModel):
     password: Optional[str] = None  # si viene, se guarda (hasheada) o se actualiza
     tipo_pago: str = "comision"  # comision | sueldo | mixto
     sueldo_fijo: float = 0  # semanal — solo aplica si tipo_pago es sueldo/mixto
+    activo: bool = True
 
 
 @app.get("/api/trabajadores")
@@ -855,8 +858,9 @@ def listar_trabajadores(db: Session = Depends(get_db), _=Depends(require_admin))
             "id": t.id, "nombre": t.nombre, "correo": t.correo, "rol": t.rol.value,
             "config_servicios": t.config_servicios, "tipo_pago": t.tipo_pago,
             "sueldo_fijo": float(t.sueldo_fijo or 0), "drive_folder_id": t.drive_folder_id,
+            "activo": t.activo,
         }
-        for t in db.query(Trabajador).filter(Trabajador.activo).all()
+        for t in db.query(Trabajador).order_by(Trabajador.activo.desc(), Trabajador.nombre).all()
     ]
 
 
@@ -875,7 +879,7 @@ def crear_trabajador(body: TrabajadorIn, db: Session = Depends(get_db), _=Depend
     t = Trabajador(
         nombre=body.nombre, correo=body.correo, rol=RolUsuario(body.rol), config_servicios=body.config_servicios,
         password_hash=hash_password(body.password) if body.password else None,
-        tipo_pago=body.tipo_pago, sueldo_fijo=body.sueldo_fijo,
+        tipo_pago=body.tipo_pago, sueldo_fijo=body.sueldo_fijo, activo=body.activo,
     )
     db.add(t)
     db.commit()
@@ -895,7 +899,7 @@ def editar_trabajador(trabajador_id: int, body: TrabajadorIn, db: Session = Depe
     if not t:
         raise HTTPException(status_code=404)
     t.nombre, t.correo, t.config_servicios = body.nombre, body.correo, body.config_servicios
-    t.tipo_pago, t.sueldo_fijo = body.tipo_pago, body.sueldo_fijo
+    t.tipo_pago, t.sueldo_fijo, t.activo = body.tipo_pago, body.sueldo_fijo, body.activo
     if body.password:
         t.password_hash = hash_password(body.password)
     db.commit()
@@ -970,20 +974,31 @@ def _comisiones_en_espera(db: Session, trabajador_id: int):
     )
 
 
+TRABAJADOR_PLACEHOLDER = "Histórico / Sin preparador"  # no es un trabajador real — se usa en servicios sin dueño
+
+
 @app.get("/api/nomina/resumen")
 def nomina_resumen(db: Session = Depends(get_db), _=Depends(require_admin)):
     out = []
-    for t in db.query(Trabajador).filter(Trabajador.activo).order_by(Trabajador.nombre).all():
+    q = db.query(Trabajador).filter(Trabajador.activo, Trabajador.nombre != TRABAJADOR_PLACEHOLDER)
+    for t in q.order_by(Trabajador.nombre).all():
         elegibles = _comisiones_elegibles(db, t.id)
         en_espera = _comisiones_en_espera(db, t.id)
         sueldo = float(t.sueldo_fijo or 0) if t.tipo_pago in ("sueldo", "mixto") else 0
         monto_comisiones = sum(float(c.monto) for c in elegibles)
+        ultimo_pago = (
+            db.query(PagoNomina)
+            .filter(PagoNomina.trabajador_id == t.id, PagoNomina.tipo == "pago")
+            .order_by(PagoNomina.fecha.desc())
+            .first()
+        )
         out.append({
             "trabajador_id": t.id, "trabajador": t.nombre, "tipo_pago": t.tipo_pago,
             "sueldo_sugerido": sueldo,
             "comisiones_monto": monto_comisiones, "comisiones_n": len(elegibles),
             "en_espera_monto": sum(float(c.monto) for c in en_espera), "en_espera_n": len(en_espera),
             "total_sugerido": sueldo + monto_comisiones,
+            "ultimo_pago": ultimo_pago.fecha.isoformat() if ultimo_pago else None,
         })
     return out
 
@@ -1067,10 +1082,17 @@ def marcar_pagado(body: PagoIn, db: Session = Depends(get_db), trabajador_admin:
 
 
 @app.get("/api/nomina/{trabajador_id}/historial")
-def nomina_historial_trabajador(trabajador_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+def nomina_historial_trabajador(
+    trabajador_id: int, fecha_inicio: Optional[date] = None, fecha_fin: Optional[date] = None,
+    db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    q = db.query(PagoNomina).filter(PagoNomina.trabajador_id == trabajador_id, PagoNomina.tipo == "pago")
+    if fecha_inicio:
+        q = q.filter(PagoNomina.fecha >= fecha_inicio)
+    if fecha_fin:
+        q = q.filter(PagoNomina.fecha <= fecha_fin)
     pagos = (
-        db.query(PagoNomina)
-        .filter(PagoNomina.trabajador_id == trabajador_id, PagoNomina.tipo == "pago")
+        q
         .order_by(PagoNomina.fecha.desc(), PagoNomina.id.desc())
         .all()
     )
