@@ -1,15 +1,23 @@
-"""Integración con Google Drive vía cuenta de servicio.
+"""Integración con Google Drive vía cuenta de servicio con delegación de dominio.
 
 El backend es el único que habla con Drive — ningún trabajador necesita
 permisos propios sobre las carpetas de clientes. Esto evita depender de la
 cuenta de Google personal de cada quien (fuente de los problemas de acceso
 que tuvimos con el árbol de "Preparadores").
 
-Requiere la variable de entorno GOOGLE_SERVICE_ACCOUNT_JSON con el contenido
-completo del JSON de la cuenta de servicio. La carpeta raíz de clientes
-nuevos se crea de forma perezosa (lazy) la primera vez que se usa y se
-comparte automáticamente con documentos@solutionstaxes.com para que el
-negocio conserve acceso nativo desde Drive como respaldo.
+Las cuentas de servicio no tienen cuota de almacenamiento propia (Google
+bloquea la subida de archivos con "storageQuotaExceeded" aunque listar/leer
+sí funcione). Por eso la cuenta de servicio actúa POR DELEGACIÓN como
+IMPERSONAR (domain-wide delegation, ya configurada en el Workspace) — todo
+lo que se crea queda con dueño real y cuota real, no hay que compartir nada
+después. Requiere GOOGLE_SERVICE_ACCOUNT_JSON con el JSON de la cuenta de
+servicio.
+
+Las carpetas raíz ("Plataforma Madre - Clientes/Trabajadores") se crean de
+forma perezosa la primera vez que se usan, ya directamente bajo la cuenta
+impersonada — es una estructura nueva, independiente del árbol viejo de
+"Preparadores" (ese se deja intacto, solo se sigue leyendo para los clientes
+que ya tienen su drive_folder_id apuntando ahí).
 """
 
 import io
@@ -25,7 +33,7 @@ from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 ROOT_FOLDER_NAME = "Plataforma Madre - Clientes"
 ROOT_TRABAJADORES_NAME = "Plataforma Madre - Trabajadores"
-COMPARTIR_CON = "documentos@solutionstaxes.com"
+IMPERSONAR = "documentos@solutionstaxes.com"
 
 _lock = threading.Lock()
 _service = None
@@ -46,7 +54,9 @@ def _get_service():
                 if not raw:
                     raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_JSON no está configurada")
                 info = json.loads(raw)
-                creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+                creds = service_account.Credentials.from_service_account_info(
+                    info, scopes=SCOPES
+                ).with_subject(IMPERSONAR)
                 _service = build("drive", "v3", credentials=creds, cache_discovery=False)
     return _service
 
@@ -71,9 +81,7 @@ def _get_or_create_root(nombre: str):
         return files[0]["id"]
     meta = {"name": nombre, "mimeType": "application/vnd.google-apps.folder"}
     carpeta = svc.files().create(body=meta, fields="id").execute()
-    folder_id = carpeta["id"]
-    _compartir(folder_id, COMPARTIR_CON)
-    return folder_id
+    return carpeta["id"]
 
 
 def _root_folder():
@@ -90,20 +98,8 @@ def _root_trabajadores():
     return _root_trabajadores_id
 
 
-def _compartir(file_id: str, correo: str, rol: str = "writer"):
-    svc = _get_service()
-    try:
-        svc.permissions().create(
-            fileId=file_id, body={"type": "user", "role": rol, "emailAddress": correo},
-            sendNotificationEmail=False,
-        ).execute()
-    except Exception:
-        pass  # no crítico — el archivo/carpeta sigue siendo accesible vía la plataforma
-
-
 def crear_carpeta_cliente(nombre: str, ssn_last4: str = None) -> str:
-    """Crea la carpeta de un cliente nuevo bajo la carpeta raíz y la comparte
-    con el negocio para acceso nativo de respaldo. Devuelve el folder id."""
+    """Crea la carpeta de un cliente nuevo bajo la carpeta raíz. Devuelve el folder id."""
     svc = _get_service()
     titulo = nombre.strip()
     if ssn_last4:
@@ -114,9 +110,7 @@ def crear_carpeta_cliente(nombre: str, ssn_last4: str = None) -> str:
         "parents": [_root_folder()],
     }
     carpeta = svc.files().create(body=meta, fields="id").execute()
-    folder_id = carpeta["id"]
-    _compartir(folder_id, COMPARTIR_CON)
-    return folder_id
+    return carpeta["id"]
 
 
 def crear_carpeta_trabajador(nombre: str) -> str:
@@ -128,9 +122,7 @@ def crear_carpeta_trabajador(nombre: str) -> str:
         "parents": [_root_trabajadores()],
     }
     carpeta = svc.files().create(body=meta, fields="id").execute()
-    folder_id = carpeta["id"]
-    _compartir(folder_id, COMPARTIR_CON)
-    return folder_id
+    return carpeta["id"]
 
 
 def crear_subcarpeta(parent_folder_id: str, nombre: str) -> dict:
