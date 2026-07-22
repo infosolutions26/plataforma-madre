@@ -515,11 +515,16 @@ async def subir_documento_drive(
     db: Session = Depends(get_db), _=Depends(current_trabajador),
 ):
     cliente = _get_cliente(tipo, cliente_id, db)
-    if not cliente.drive_folder_id:
-        cliente.drive_folder_id = drive.crear_carpeta_cliente(cliente.nombre, getattr(cliente, "ssn_last4", None))
-        db.commit()
-    contenido = await file.read()
-    archivo = drive.subir_archivo(cliente.drive_folder_id, file.filename, contenido, file.content_type)
+    try:
+        if not cliente.drive_folder_id:
+            cliente.drive_folder_id = drive.crear_carpeta_cliente(cliente.nombre, getattr(cliente, "ssn_last4", None))
+            db.commit()
+        contenido = await file.read()
+        archivo = drive.subir_archivo(cliente.drive_folder_id, file.filename, contenido, file.content_type)
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"No se pudo subir a Drive: {exc}")
     return archivo
 
 
