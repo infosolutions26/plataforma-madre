@@ -406,6 +406,34 @@ def limpiar_archivos_drive(db: Session = Depends(get_db), _=Depends(require_admi
 
 # ---------- clientes ----------
 
+@app.get("/api/_export_clientes_dedup")
+def export_clientes_dedup(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Dump completo de personas/empresas con las señales necesarias para
+    detectar duplicados (ssn_last4, teléfono, correo) — para análisis, no
+    modifica nada. Endpoint temporal."""
+    personas = [
+        {
+            "id": p.id, "nombre": p.nombre, "ssn_last4": p.ssn_last4, "telefono": p.telefono,
+            "correo": p.correo, "drive_folder_id": p.drive_folder_id, "actividad": p.actividad,
+            "n_servicios": db.query(Servicio).filter(Servicio.persona_id == p.id).count(),
+            "n_notas": db.query(NotaCliente).filter(NotaCliente.persona_id == p.id).count(),
+            "n_archivos": db.query(Archivo).filter(Archivo.persona_id == p.id).count(),
+        }
+        for p in db.query(Persona).all()
+    ]
+    empresas = [
+        {
+            "id": e.id, "nombre": e.nombre, "ein": e.ein, "telefono": e.telefono,
+            "correo": e.correo, "drive_folder_id": e.drive_folder_id, "actividad": e.actividad,
+            "n_servicios": db.query(Servicio).filter(Servicio.empresa_id == e.id).count(),
+            "n_notas": db.query(NotaCliente).filter(NotaCliente.empresa_id == e.id).count(),
+            "n_archivos": db.query(Archivo).filter(Archivo.empresa_id == e.id).count(),
+        }
+        for e in db.query(Empresa).all()
+    ]
+    return {"personas": personas, "empresas": empresas}
+
+
 class ClienteIn(BaseModel):
     tipo: str  # persona | empresa
     nombre: str
