@@ -1149,6 +1149,7 @@ def editar_servicio(
 class EstatusRapidoIn(BaseModel):
     estatus: Optional[str] = None  # estatus de pago (Pagado, Pendiente de pago...)
     status_taxes: Optional[str] = None  # detalle.statusTaxes — el estatus del trámite en sí
+    metodo_pago: Optional[str] = None
 
 
 @app.put("/api/servicios/{servicio_id}/estatus-rapido")
@@ -1167,6 +1168,8 @@ def editar_estatus_rapido(
         s.estatus = body.estatus
     if body.status_taxes:
         s.detalle = {**(s.detalle or {}), "statusTaxes": body.status_taxes}
+    if body.metodo_pago:
+        s.metodo_pago = body.metodo_pago
     db.commit()
     return {"ok": True}
 
@@ -1490,6 +1493,7 @@ def nomina_historial_trabajador(
             "sueldo_incluido": float(p.sueldo_incluido or 0), "comisiones_incluidas": float(p.comisiones_incluidas or 0),
             "extra_monto": float(p.extra_monto or 0), "extra_concepto": p.extra_concepto,
             "concepto": p.concepto, "n_servicios": p.n_servicios, "drive_url": p.drive_url,
+            "recibo_id": drive.extraer_file_id(p.drive_url),
             "servicios": servicios,
         })
     return out
@@ -1557,6 +1561,53 @@ def guardar_config(clave: str, body: ConfigIn, db: Session = Depends(get_db), _=
         c.valor = body.valor
     else:
         db.add(Configuracion(clave=clave, valor=body.valor))
+    db.commit()
+    return {"ok": True}
+
+
+# ---------- temporadas (rangos de fecha con nombre, para los filtros) ----------
+
+class TemporadaIn(BaseModel):
+    nombre: str
+    desde: date
+    hasta: date
+
+
+@app.get("/api/temporadas")
+def listar_temporadas(db: Session = Depends(get_db), _=Depends(current_trabajador)):
+    """Abierto a cualquier sesión válida — se usan para poblar el selector de
+    temporada en los filtros de fecha, no son datos sensibles."""
+    return [
+        {"id": t.id, "nombre": t.nombre, "desde": t.desde.isoformat(), "hasta": t.hasta.isoformat()}
+        for t in db.query(PeriodoCustom).order_by(PeriodoCustom.desde.desc()).all()
+    ]
+
+
+@app.post("/api/temporadas")
+def crear_temporada(body: TemporadaIn, db: Session = Depends(get_db), _=Depends(require_permiso("configuracion"))):
+    t = PeriodoCustom(nombre=body.nombre, desde=body.desde, hasta=body.hasta)
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    return {"id": t.id}
+
+
+@app.put("/api/temporadas/{temporada_id}")
+def editar_temporada(temporada_id: int, body: TemporadaIn, db: Session = Depends(get_db), _=Depends(require_permiso("configuracion"))):
+    t = db.get(PeriodoCustom, temporada_id)
+    if not t:
+        raise HTTPException(status_code=404)
+    t.nombre, t.desde, t.hasta = body.nombre, body.desde, body.hasta
+    db.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/temporadas/{temporada_id}")
+def eliminar_temporada(temporada_id: int, db: Session = Depends(get_db), _=Depends(require_permiso("configuracion"))):
+    t = db.get(PeriodoCustom, temporada_id)
+    if not t:
+        raise HTTPException(status_code=404)
+    db.delete(t)
     db.commit()
     return {"ok": True}
 

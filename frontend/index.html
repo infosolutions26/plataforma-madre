@@ -346,6 +346,15 @@
   .rm-btn { color: var(--crit); background: none; border: none; cursor: pointer; font-size: 16px; padding: 6px; line-height: 1; }
   .hint { font-size: 11px; color: var(--ink-faint); }
 
+  /* ---- pestañas horizontales secundarias (ej. línea dentro de Seguimiento) ---- */
+  .subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 4px 0 14px; flex-wrap: wrap; }
+  .subtab {
+    padding: 8px 16px; font-size: 13px; font-weight: 600; color: var(--ink-soft);
+    cursor: pointer; border-bottom: 2px solid transparent; user-select: none;
+  }
+  .subtab:hover { color: var(--ink); }
+  .subtab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
   /* ---- multi-select desplegable (ej. tipo de servicio en Estadísticas) ---- */
   .multiselect { position: relative; }
   .ms-toggle { width: 100%; justify-content: space-between; display: flex; text-align: left; }
@@ -480,7 +489,7 @@
             <thead>
               <tr>
                 <th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Año</th><th>Método</th>
-                <th class="num">Cobro</th><th>Estatus</th><th class="num">Comisión</th><th></th>
+                <th class="num">Cobro</th><th>Estatus del tax</th><th>Estatus de pago</th><th class="num">Comisión</th><th></th>
               </tr>
             </thead>
             <tbody id="serviciosTableBody"></tbody>
@@ -632,6 +641,7 @@
             <div class="h2row"><h2>Historial por trabajador</h2></div>
             <div class="field-row3">
               <div class="field"><label>Trabajador</label><select id="histTrabajadorSelect"></select></div>
+              <div class="field"><label>Temporada</label><select id="histTemporada"><option value="">— elegir —</option></select></div>
               <div class="field"><label>Desde</label><input type="date" id="histFechaInicio"></div>
               <div class="field"><label>Hasta</label><input type="date" id="histFechaFin"></div>
             </div>
@@ -648,6 +658,7 @@
           <div class="panel">
             <div class="h2row"><h2>Dashboard semanal de nómina</h2></div>
             <div class="field-row3">
+              <div class="field"><label>Temporada</label><select id="dashTemporada"><option value="">— elegir —</option></select></div>
               <div class="field"><label>Fecha de inicio (fija)</label><input type="date" id="dashFechaInicio"></div>
               <div class="field"><label>Hasta</label><input type="date" id="dashFechaFin"></div>
               <div class="field" style="justify-content:flex-end;"><button class="btn small" id="btnDashAplicar" type="button">Aplicar</button></div>
@@ -675,15 +686,20 @@
           <h1 class="page-title">Seguimiento de servicios</h1>
           <p class="page-sub">Todos los servicios de todos los trabajadores, agrupados por línea — no solo los tuyos. Clic en una fila para editar ese servicio directamente.</p>
 
+          <div class="subtabs" id="segLineaTabs">
+            <div class="subtab active" data-linea="Taxes">Taxes</div>
+            <div class="subtab" data-linea="Contabilidad">Contabilidad</div>
+            <div class="subtab" data-linea="Capital">Capital</div>
+            <div class="subtab" data-linea="Otros servicios">Otros servicios</div>
+            <div class="subtab" data-linea="">Todas</div>
+          </div>
+          <input type="hidden" id="segLinea" value="Taxes">
+
           <div class="panel">
             <div class="field-row3">
-              <div class="field"><label>Línea</label><select id="segLinea">
-                <option value="Taxes">Taxes</option><option value="Contabilidad">Contabilidad</option>
-                <option value="Capital">Capital</option><option value="Otros servicios">Otros servicios</option>
-                <option value="">Todas</option>
-              </select></div>
               <div class="field"><label>Trabajador</label><select id="segTrabajador"><option value="">Todos</option></select></div>
               <div class="field"><label>Estatus de pago</label><select id="segEstatus"><option value="">Todos</option></select></div>
+              <div class="field"><label>Temporada</label><select id="segTemporada"><option value="">— elegir —</option></select></div>
             </div>
             <div class="field-row3">
               <div class="field"><label>Desde</label><input type="date" id="segDesde"></div>
@@ -725,6 +741,23 @@
             </div>
             <p class="hint" id="cfgFechaGuardado" style="min-height:14px;"></p>
           </div>
+
+          <div class="panel">
+            <h2>Temporadas</h2>
+            <p class="hint" style="margin:-2px 0 10px;">Rangos de fecha con nombre (ej. "Temporada 2025", "Q1 2026") que aparecen como opción en los filtros de fecha de toda la plataforma — elige una para llenar el "Desde"/"Hasta" de un clic y comparar periodos rápido.</p>
+            <div class="table-wrap" style="border:none;">
+              <table>
+                <thead><tr><th>Nombre</th><th>Desde</th><th>Hasta</th><th></th></tr></thead>
+                <tbody id="temporadasBody"></tbody>
+              </table>
+            </div>
+            <div class="field-row3" style="margin-top:10px;">
+              <div class="field"><label>Nombre</label><input type="text" id="tempNombre" placeholder="Temporada 2026"></div>
+              <div class="field"><label>Desde</label><input type="date" id="tempDesde"></div>
+              <div class="field"><label>Hasta</label><input type="date" id="tempHasta"></div>
+            </div>
+            <button class="btn small" id="btnAgregarTemporada" type="button" style="margin-top:8px;">+ Agregar temporada</button>
+          </div>
         </div>
       </section>
 
@@ -745,8 +778,11 @@
 
           <div class="panel">
             <div class="field-row3">
+              <div class="field"><label>Temporada</label><select id="statsTemporada"><option value="">— elegir —</option></select></div>
               <div class="field"><label>Desde</label><input type="date" id="statsFechaInicio"></div>
               <div class="field"><label>Hasta</label><input type="date" id="statsFechaFin"></div>
+            </div>
+            <div class="field-row3">
               <div class="field"><label>Tipo de servicio</label>
                 <div class="multiselect" id="statsTipoMulti">
                   <button type="button" class="btn small ms-toggle" id="statsTipoToggle">Todos ▾</button>
@@ -810,6 +846,9 @@
             </div>
             <div class="field-row3">
               <div class="field"><label>Método de pago</label><select id="advMetodo"><option value="">Todos</option></select></div>
+              <div class="field"><label>Temporada</label><select id="advTemporada"><option value="">— elegir —</option></select></div>
+            </div>
+            <div class="field-row3">
               <div class="field"><label>Desde</label><input type="date" id="advDesde"></div>
               <div class="field"><label>Hasta</label><input type="date" id="advHasta"></div>
             </div>
@@ -1101,6 +1140,7 @@
     editingWorkerId: null,
     clienteModalChained: false,
     editingClienteKey: null,
+    temporadas: [],
     camStream: null,
     camStreamProfile: null,
     statsCatalogosCargados: false,
@@ -1193,13 +1233,26 @@
   });
 
   // ---------- mis servicios (dashboard personal) ----------
+  function inlineStatusSelect(opciones, valorActual, onSave){
+    var sel = el("select", "status-select");
+    opciones.forEach(function(op){ var o=el("option"); o.value=op; o.textContent=op; sel.appendChild(o); });
+    if (opciones.indexOf(valorActual) === -1 && valorActual) { var extra=el("option"); extra.value=valorActual; extra.textContent=valorActual; sel.insertBefore(extra, sel.firstChild); }
+    sel.value = valorActual;
+    sel.classList.add(statusClass(valorActual));
+    sel.addEventListener("click", function(e){ e.stopPropagation(); });
+    sel.addEventListener("change", function(){
+      sel.className = "status-select " + statusClass(sel.value);
+      onSave(sel.value);
+    });
+    return sel;
+  }
   function renderServiciosTable(){
     var tbody = document.getElementById("serviciosTableBody");
-    tbody.innerHTML = '<tr><td colspan="9"><p class="hint" style="padding:14px 0;">Cargando…</p></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10"><p class="hint" style="padding:14px 0;">Cargando…</p></td></tr>';
     api("/api/servicios/mios").then(function(lista){
       tbody.innerHTML = "";
       if (!lista.length) {
-        tbody.innerHTML = '<tr><td colspan="9"><p class="hint" style="padding:14px 0;">Todavía no tienes servicios registrados.</p></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10"><p class="hint" style="padding:14px 0;">Todavía no tienes servicios registrados.</p></td></tr>';
         return;
       }
       lista.forEach(function(s){
@@ -1218,25 +1271,36 @@
         });
         tdCliente.appendChild(clienteLink);
 
-        var tdEstatus = el("td");
         var conf = SERVICE_TYPES[s.tipo];
         var esTaxes = conf && conf.linea === "Taxes";
-        var sel = el("select", "status-select");
-        var opciones = esTaxes ? STATUS_TAXES_OPTIONS : ESTATUS_PAGO_BASE;
-        var valorActual = esTaxes ? ((s.detalle||{}).statusTaxes || "") : s.estatus;
-        opciones.forEach(function(op){ var o=el("option"); o.value=op; o.textContent=op; sel.appendChild(o); });
-        if (opciones.indexOf(valorActual) === -1 && valorActual) { var extra=el("option"); extra.value=valorActual; extra.textContent=valorActual; sel.insertBefore(extra, sel.firstChild); }
-        sel.value = valorActual;
-        sel.classList.add(statusClass(valorActual));
-        sel.addEventListener("click", function(e){ e.stopPropagation(); });
-        sel.addEventListener("change", function(){
-          sel.className = "status-select " + statusClass(sel.value);
-          var body = esTaxes ? {status_taxes: sel.value} : {estatus: sel.value};
+
+        function guardarRapido(body){
           api("/api/servicios/" + s.id + "/estatus-rapido", {method:"PUT", body: body}).catch(function(e){
-            alert("No se pudo actualizar el estatus: " + e.message);
+            alert("No se pudo actualizar: " + e.message);
           });
-        });
-        tdEstatus.appendChild(sel);
+        }
+
+        var tdEstatusTax = el("td");
+        if (esTaxes) {
+          tdEstatusTax.appendChild(inlineStatusSelect(STATUS_TAXES_OPTIONS, (s.detalle||{}).statusTaxes || "", function(v){ guardarRapido({status_taxes: v}); }));
+        } else {
+          tdEstatusTax.textContent = "—";
+        }
+
+        var opcionesPago = esTaxes ? ESTATUS_PAGO_TAXES : ESTATUS_PAGO_BASE;
+        var tdEstatusPago = el("td");
+        tdEstatusPago.appendChild(inlineStatusSelect(opcionesPago, s.estatus || "", function(v){ guardarRapido({estatus: v}); }));
+
+        var tdMetodo = el("td");
+        var selMetodo = el("select", "status-select neutral");
+        METODOS_PAGO.forEach(function(op){ var o=el("option"); o.value=op; o.textContent=op; selMetodo.appendChild(o); });
+        if (s.metodo_pago && METODOS_PAGO.indexOf(s.metodo_pago) === -1) { var extraM=el("option"); extraM.value=s.metodo_pago; extraM.textContent=s.metodo_pago; selMetodo.insertBefore(extraM, selMetodo.firstChild); }
+        var elOpcionVacia = el("option"); elOpcionVacia.value = ""; elOpcionVacia.textContent = "Sin especificar";
+        selMetodo.insertBefore(elOpcionVacia, selMetodo.firstChild);
+        selMetodo.value = s.metodo_pago || "";
+        selMetodo.addEventListener("click", function(e){ e.stopPropagation(); });
+        selMetodo.addEventListener("change", function(){ guardarRapido({metodo_pago: selMetodo.value}); });
+        tdMetodo.appendChild(selMetodo);
 
         var tdEditar = el("td");
         var btnEditar = el("button", "icon-btn", "✎");
@@ -1248,11 +1312,10 @@
         var tdFecha = el("td", null, fmtFecha(s.fecha));
         var tdTipo = el("td", null, s.tipo);
         var tdAnio = el("td", null, (s.detalle||{}).anio || "—");
-        var tdMetodo = el("td", null, s.metodo_pago || "—");
         var tdCobro = el("td", "num", money(s.cobro));
         var tdComision = el("td", "num", comisionHtml);
 
-        [tdFecha, tdCliente, tdTipo, tdAnio, tdMetodo, tdCobro, tdEstatus, tdComision, tdEditar].forEach(function(td){ tr.appendChild(td); });
+        [tdFecha, tdCliente, tdTipo, tdAnio, tdMetodo, tdCobro, tdEstatusTax, tdEstatusPago, tdComision, tdEditar].forEach(function(td){ tr.appendChild(td); });
         tbody.appendChild(tr);
       });
     }).catch(function(e){ if (e.message !== "no-auth") console.error(e); });
@@ -1293,6 +1356,7 @@
     showView("servicios");
     renderServiciosTable();
     cargarFechaInicioDefault();
+    cargarTemporadas();
   }
 
   // ---------- configuración: fecha de inicio predeterminada de los filtros ----------
@@ -1313,6 +1377,91 @@
       document.getElementById("cfgFechaGuardado").textContent = "Guardado — aplica a partir de ahora en los filtros de todos.";
       setTimeout(function(){ document.getElementById("cfgFechaGuardado").textContent = ""; }, 3000);
     }).catch(function(e){ alert("No se pudo guardar: " + e.message); });
+  });
+
+  // ---------- configuración: temporadas (rangos de fecha con nombre) ----------
+  var TEMPORADA_SELECTS = [
+    {select: "statsTemporada", desde: "statsFechaInicio", hasta: "statsFechaFin"},
+    {select: "segTemporada", desde: "segDesde", hasta: "segHasta"},
+    {select: "advTemporada", desde: "advDesde", hasta: "advHasta"},
+    {select: "histTemporada", desde: "histFechaInicio", hasta: "histFechaFin"},
+    {select: "dashTemporada", desde: "dashFechaInicio", hasta: "dashFechaFin"},
+  ];
+  function poblarSelectsTemporadas(){
+    TEMPORADA_SELECTS.forEach(function(cfg){
+      var sel = document.getElementById(cfg.select);
+      if (!sel) return;
+      var actual = sel.value;
+      sel.innerHTML = '<option value="">— elegir —</option>';
+      state.temporadas.forEach(function(t){
+        var o = el("option"); o.value = t.id; o.textContent = t.nombre + " (" + fmtFecha(t.desde) + "–" + fmtFecha(t.hasta) + ")";
+        sel.appendChild(o);
+      });
+      if (actual) sel.value = actual;
+    });
+  }
+  function cargarTemporadas(){
+    return api("/api/temporadas").then(function(lista){
+      state.temporadas = lista;
+      poblarSelectsTemporadas();
+      renderTemporadasConfig();
+    }).catch(function(){});
+  }
+  TEMPORADA_SELECTS.forEach(function(cfg){
+    var sel = document.getElementById(cfg.select);
+    if (!sel) return;
+    sel.addEventListener("change", function(){
+      var t = (state.temporadas || []).find(function(x){ return String(x.id) === sel.value; });
+      if (!t) return;
+      document.getElementById(cfg.desde).value = t.desde;
+      document.getElementById(cfg.hasta).value = t.hasta;
+    });
+  });
+  function renderTemporadasConfig(){
+    var tbody = document.getElementById("temporadasBody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+    if (!(state.temporadas || []).length) {
+      tbody.innerHTML = '<tr><td colspan="4"><p class="hint" style="padding:10px 0;">Todavía no hay temporadas configuradas.</p></td></tr>';
+      return;
+    }
+    state.temporadas.forEach(function(t){
+      var tr = el("tr");
+      var nombreIn = el("input"); nombreIn.type = "text"; nombreIn.value = t.nombre;
+      var desdeIn = el("input"); desdeIn.type = "date"; desdeIn.value = t.desde;
+      var hastaIn = el("input"); hastaIn.type = "date"; hastaIn.value = t.hasta;
+      var tdNombre = el("td"); tdNombre.appendChild(nombreIn);
+      var tdDesde = el("td"); tdDesde.appendChild(desdeIn);
+      var tdHasta = el("td"); tdHasta.appendChild(hastaIn);
+      var tdAcciones = el("td");
+      var btnGuardar = el("button", "icon-btn", "✓"); btnGuardar.type = "button"; btnGuardar.title = "Guardar cambios";
+      var btnEliminar = el("button", "icon-btn", "✕"); btnEliminar.type = "button"; btnEliminar.title = "Eliminar";
+      btnGuardar.addEventListener("click", function(){
+        api("/api/temporadas/" + t.id, {method:"PUT", body:{nombre: nombreIn.value.trim(), desde: desdeIn.value, hasta: hastaIn.value}})
+          .then(cargarTemporadas)
+          .catch(function(e){ alert("No se pudo guardar: " + e.message); });
+      });
+      btnEliminar.addEventListener("click", function(){
+        if (!confirm('¿Eliminar la temporada "' + t.nombre + '"?')) return;
+        api("/api/temporadas/" + t.id, {method:"DELETE"}).then(cargarTemporadas).catch(function(e){ alert("No se pudo eliminar: " + e.message); });
+      });
+      tdAcciones.style.display = "flex"; tdAcciones.style.gap = "6px";
+      tdAcciones.appendChild(btnGuardar); tdAcciones.appendChild(btnEliminar);
+      [tdNombre, tdDesde, tdHasta, tdAcciones].forEach(function(td){ tr.appendChild(td); });
+      tbody.appendChild(tr);
+    });
+  }
+  document.getElementById("btnAgregarTemporada").addEventListener("click", function(){
+    var nombre = document.getElementById("tempNombre").value.trim();
+    var desde = document.getElementById("tempDesde").value;
+    var hasta = document.getElementById("tempHasta").value;
+    if (!nombre || !desde || !hasta) { alert("Completa nombre, desde y hasta."); return; }
+    api("/api/temporadas", {method:"POST", body:{nombre: nombre, desde: desde, hasta: hasta}}).then(function(){
+      document.getElementById("tempNombre").value = "";
+      document.getElementById("tempDesde").value = "";
+      document.getElementById("tempHasta").value = "";
+      cargarTemporadas();
+    }).catch(function(e){ alert("No se pudo crear: " + e.message); });
   });
 
   // ---------- client list ----------
@@ -2451,7 +2600,7 @@
           '<td>'+fmtFecha(p.fecha)+'</td><td>'+(p.tipo==="ajuste_inicial"?"Ajuste inicial":"Pago")+'</td>' +
           '<td class="num">'+money(p.monto)+'</td><td class="num">'+p.n_servicios+'</td>' +
           '<td>'+(p.concepto||p.extra_concepto||"—")+'</td>' +
-          '<td>'+(p.drive_url ? '<a href="'+p.drive_url+'" target="_blank" rel="noopener">Ver recibo</a>' : '<span class="hint">Sin recibo</span>')+'</td>';
+          '<td>'+(p.recibo_id ? '<a href="/api/documentos/'+p.recibo_id+'/contenido" target="_blank" rel="noopener">Ver recibo</a>' : (p.drive_url ? '<a href="'+p.drive_url+'" target="_blank" rel="noopener">Ver recibo</a>' : '<span class="hint">Sin recibo</span>'))+'</td>';
         tr.addEventListener("click", function(){ mostrarDetallePago(p); });
         tbody.appendChild(tr);
       });
@@ -2652,6 +2801,14 @@
     });
   }
   document.getElementById("btnSegBuscar").addEventListener("click", buscarSeguimiento);
+  document.querySelectorAll("#segLineaTabs .subtab").forEach(function(tab){
+    tab.addEventListener("click", function(){
+      document.querySelectorAll("#segLineaTabs .subtab").forEach(function(t){ t.classList.remove("active"); });
+      tab.classList.add("active");
+      document.getElementById("segLinea").value = tab.dataset.linea;
+      buscarSeguimiento();
+    });
+  });
 
   document.getElementById("btnStatsFiltrar").addEventListener("click", renderStats);
   document.getElementById("btnStatsLimpiar").addEventListener("click", function(){

@@ -69,6 +69,14 @@ def extraer_folder_id(drive_url: str):
     return m.group(1) if m else None
 
 
+def extraer_file_id(drive_url: str):
+    """Saca el id de archivo de un link tipo https://drive.google.com/file/d/<id>/view."""
+    if not drive_url:
+        return None
+    m = re.search(r"/file/d/([a-zA-Z0-9_-]+)", drive_url)
+    return m.group(1) if m else None
+
+
 def _get_or_create_root(nombre: str):
     svc = _get_service()
     q = (
