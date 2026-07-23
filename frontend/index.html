@@ -642,8 +642,8 @@
             <div class="field-row3">
               <div class="field"><label>Trabajador</label><select id="histTrabajadorSelect"></select></div>
               <div class="field"><label>Temporada</label><select id="histTemporada"><option value="">— elegir —</option></select></div>
-              <div class="field"><label>Desde</label><input type="date" id="histFechaInicio"></div>
-              <div class="field"><label>Hasta</label><input type="date" id="histFechaFin"></div>
+              <div class="field"><label>Desde</label><input type="date" lang="en-US" id="histFechaInicio"></div>
+              <div class="field"><label>Hasta</label><input type="date" lang="en-US" id="histFechaFin"></div>
             </div>
             <div class="table-wrap" style="border:none; margin-top:10px;">
               <table>
@@ -659,8 +659,8 @@
             <div class="h2row"><h2>Dashboard semanal de nómina</h2></div>
             <div class="field-row3">
               <div class="field"><label>Temporada</label><select id="dashTemporada"><option value="">— elegir —</option></select></div>
-              <div class="field"><label>Fecha de inicio (fija)</label><input type="date" id="dashFechaInicio"></div>
-              <div class="field"><label>Hasta</label><input type="date" id="dashFechaFin"></div>
+              <div class="field"><label>Fecha de inicio (fija)</label><input type="date" lang="en-US" id="dashFechaInicio"></div>
+              <div class="field"><label>Hasta</label><input type="date" lang="en-US" id="dashFechaFin"></div>
               <div class="field" style="justify-content:flex-end;"><button class="btn small" id="btnDashAplicar" type="button">Aplicar</button></div>
             </div>
             <p class="hint" style="margin:-4px 0 10px;">La fecha de inicio se guarda — no se mueve hasta que la cambies, aunque cierres sesión o recargues.</p>
@@ -702,8 +702,8 @@
               <div class="field"><label>Temporada</label><select id="segTemporada"><option value="">— elegir —</option></select></div>
             </div>
             <div class="field-row3">
-              <div class="field"><label>Desde</label><input type="date" id="segDesde"></div>
-              <div class="field"><label>Hasta</label><input type="date" id="segHasta"></div>
+              <div class="field"><label>Desde</label><input type="date" lang="en-US" id="segDesde"></div>
+              <div class="field"><label>Hasta</label><input type="date" lang="en-US" id="segHasta"></div>
               <div class="field" style="justify-content:flex-end; display:flex; flex-direction:row; align-items:flex-end;">
                 <button class="btn primary small" id="btnSegBuscar" type="button" style="width:100%;">Buscar</button>
               </div>
@@ -736,7 +736,7 @@
             <h2>Fecha de inicio predeterminada de los filtros</h2>
             <p class="hint" style="margin:-2px 0 10px;">Cuando alguien entra a Estadísticas, Seguimiento, Filtros avanzados o el historial de un trabajador en Nómina, el filtro "Desde" arranca preestablecido a partir de esta fecha (se puede cambiar por sesión, esto solo define el punto de partida).</p>
             <div class="field-row">
-              <div class="field"><label>Fecha de inicio</label><input type="date" id="cfgFechaInicio"></div>
+              <div class="field"><label>Fecha de inicio</label><input type="date" lang="en-US" id="cfgFechaInicio"></div>
               <div class="field" style="justify-content:flex-end;"><button class="btn primary small" id="btnGuardarConfigFecha" type="button">Guardar</button></div>
             </div>
             <p class="hint" id="cfgFechaGuardado" style="min-height:14px;"></p>
@@ -753,8 +753,8 @@
             </div>
             <div class="field-row3" style="margin-top:10px;">
               <div class="field"><label>Nombre</label><input type="text" id="tempNombre" placeholder="Temporada 2026"></div>
-              <div class="field"><label>Desde</label><input type="date" id="tempDesde"></div>
-              <div class="field"><label>Hasta</label><input type="date" id="tempHasta"></div>
+              <div class="field"><label>Desde</label><input type="date" lang="en-US" id="tempDesde"></div>
+              <div class="field"><label>Hasta</label><input type="date" lang="en-US" id="tempHasta"></div>
             </div>
             <button class="btn small" id="btnAgregarTemporada" type="button" style="margin-top:8px;">+ Agregar temporada</button>
           </div>
@@ -779,8 +779,8 @@
           <div class="panel">
             <div class="field-row3">
               <div class="field"><label>Temporada</label><select id="statsTemporada"><option value="">— elegir —</option></select></div>
-              <div class="field"><label>Desde</label><input type="date" id="statsFechaInicio"></div>
-              <div class="field"><label>Hasta</label><input type="date" id="statsFechaFin"></div>
+              <div class="field"><label>Desde</label><input type="date" lang="en-US" id="statsFechaInicio"></div>
+              <div class="field"><label>Hasta</label><input type="date" lang="en-US" id="statsFechaFin"></div>
             </div>
             <div class="field-row3">
               <div class="field"><label>Tipo de servicio</label>
@@ -849,8 +849,8 @@
               <div class="field"><label>Temporada</label><select id="advTemporada"><option value="">— elegir —</option></select></div>
             </div>
             <div class="field-row3">
-              <div class="field"><label>Desde</label><input type="date" id="advDesde"></div>
-              <div class="field"><label>Hasta</label><input type="date" id="advHasta"></div>
+              <div class="field"><label>Desde</label><input type="date" lang="en-US" id="advDesde"></div>
+              <div class="field"><label>Hasta</label><input type="date" lang="en-US" id="advHasta"></div>
             </div>
             <div class="field-row3">
               <div class="field"><label>Tipo de cita</label><select id="advTipoCita">
@@ -899,7 +899,7 @@
       </div>
       <div class="field-row">
         <div class="field"><label>Tipo de servicio</label><select id="svcTipo"></select></div>
-        <div class="field"><label>Fecha</label><input type="date" id="svcFecha"></div>
+        <div class="field"><label>Fecha</label><input type="date" lang="en-US" id="svcFecha"></div>
       </div>
 
       <div id="svcDetalleExtra" style="display:flex; flex-direction:column; gap:14px;"></div>
