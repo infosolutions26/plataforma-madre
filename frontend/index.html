@@ -227,6 +227,16 @@
   .bar-fill { height: 100%; border-radius: 4px; background: var(--accent); }
   .bar-row .bval { text-align: right; font-variant-numeric: tabular-nums; font-family: ui-monospace, monospace; color: var(--ink); }
 
+  /* ---- gráfica de barras verticales cronológica (día/semana/mes) ---- */
+  .vbar-chart { display: flex; align-items: flex-end; gap: 5px; height: 170px; overflow-x: auto; padding: 4px 4px 28px; position: relative; }
+  .vbar-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; min-width: 16px; height: 100%; flex: 1 0 auto; cursor: default; position: relative; }
+  .vbar-fill { width: 68%; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 2px; transition: opacity .1s; }
+  .vbar-col:hover .vbar-fill { opacity: .75; }
+  .vbar-label {
+    font-size: 9.5px; color: var(--ink-faint); margin-top: 6px; white-space: nowrap;
+    position: absolute; bottom: 2px; transform: rotate(-40deg) translateX(-6px); transform-origin: top left;
+  }
+
   /* ---- segmented control ---- */
   .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; padding: 2px; background: var(--surface); gap: 2px; flex-wrap: wrap; }
   .segmented button {
@@ -871,6 +881,32 @@
           </div>
 
           <div class="stat-row" id="statsResumen"></div>
+
+          <div class="panel">
+            <h2>Taxes por día</h2>
+            <p class="hint" style="margin:-4px 0 10px;">Solo servicios de la línea Taxes. Si el rango de fechas es muy largo (más de 60 días con datos), se muestra por semana en su lugar.</p>
+            <div id="chartPorDia"></div>
+          </div>
+
+          <div class="panel">
+            <h2>Ingresos por semana</h2>
+            <div id="chartPorSemana"></div>
+          </div>
+
+          <div class="panel">
+            <h2>Histórico mensual</h2>
+            <div id="chartPorMes"></div>
+          </div>
+
+          <div class="panel">
+            <h2>Desempeño por preparador</h2>
+            <div class="table-wrap" style="border:none;">
+              <table>
+                <thead><tr><th>Trabajador</th><th class="num">Servicios</th><th class="num">Ingresos</th><th class="num">Promedio de cobro</th></tr></thead>
+                <tbody id="tablaPreparadores"></tbody>
+              </table>
+            </div>
+          </div>
 
           <div class="panel">
             <h2>Ingresos por línea de servicio</h2>
@@ -2962,6 +2998,48 @@
       '<div style="width:96px; height:96px; border-radius:50%; flex:0 0 auto; background: conic-gradient('+stops+');"></div>' +
       '<div style="display:flex; flex-direction:column; gap:4px;">'+legend+'</div>';
   }
+  var MESES_CORTOS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+  function fmtDiaCorto(iso){ var m = iso.match(/-(\d{2})-(\d{2})$/); return m ? (m[1]+"/"+m[2]) : iso; }
+  function fmtMesCorto(iso){ var m = iso.match(/^(\d{4})-(\d{2})$/); return m ? (MESES_CORTOS[parseInt(m[2],10)-1]+" '"+m[1].slice(2)) : iso; }
+  function renderBarChartVertical(elId, keys, values, labels, emptyMsg, esDinero){
+    var wrap = document.getElementById(elId);
+    if (!keys.length) { wrap.innerHTML = '<p class="hint">'+emptyMsg+'</p>'; return; }
+    var max = Math.max.apply(null, values.concat([1]));
+    wrap.innerHTML = '<div class="vbar-chart">' + keys.map(function(k, i){
+      var v = values[i];
+      var h = Math.max(2, Math.round(100 * v / max));
+      var val = esDinero ? money(v) : v;
+      return '<div class="vbar-col" title="'+labels[i]+': '+val+'"><div class="vbar-fill" style="height:'+h+'%"></div><div class="vbar-label">'+labels[i]+'</div></div>';
+    }).join("") + '</div>';
+  }
+  function renderTendencias(data){
+    var diasKeys = Object.keys(data.por_dia || {});
+    if (diasKeys.length > 0 && diasKeys.length <= 60) {
+      renderBarChartVertical("chartPorDia", diasKeys, diasKeys.map(function(k){ return data.por_dia[k]; }),
+        diasKeys.map(fmtDiaCorto), "Sin taxes en este rango.", false);
+    } else if (diasKeys.length > 60) {
+      document.getElementById("chartPorDia").innerHTML = '<p class="hint">Hay '+diasKeys.length+' días con datos en este rango — acota el filtro de fecha a menos de 60 días para ver el detalle diario. Mientras tanto, revisa "Ingresos por semana" abajo.</p>';
+    } else {
+      document.getElementById("chartPorDia").innerHTML = '<p class="hint">Sin taxes en este rango.</p>';
+    }
+
+    var semKeys = Object.keys(data.por_semana || {});
+    renderBarChartVertical("chartPorSemana", semKeys, semKeys.map(function(k){ return data.por_semana[k].ingresos; }),
+      semKeys.map(fmtDiaCorto), "Sin servicios en este rango.", true);
+
+    var mesKeys = Object.keys(data.por_mes || {});
+    renderBarChartVertical("chartPorMes", mesKeys, mesKeys.map(function(k){ return data.por_mes[k].servicios; }),
+      mesKeys.map(fmtMesCorto), "Sin servicios en este rango.", false);
+  }
+  function renderTablaPreparadores(detalle){
+    var tbody = document.getElementById("tablaPreparadores");
+    var nombres = Object.keys(detalle || {});
+    if (!nombres.length) { tbody.innerHTML = '<tr><td colspan="4"><p class="hint" style="padding:10px 0;">Sin servicios en este rango.</p></td></tr>'; return; }
+    tbody.innerHTML = nombres.map(function(n){
+      var d = detalle[n];
+      return '<tr><td>'+n+'</td><td class="num">'+d.servicios+'</td><td class="num">'+money(d.ingresos)+'</td><td class="num">'+money(d.promedio)+'</td></tr>';
+    }).join("");
+  }
   function cargarCatalogosStats(){
     if (state.statsCatalogosCargados) return Promise.resolve();
     state.statsCatalogosCargados = true;
@@ -3052,8 +3130,11 @@
         '<div class="stat-tile"><div class="lbl">Ingresos</div><div class="val">'+money(data.ingresos)+'</div><div class="sub">en el rango filtrado</div></div>' +
         '<div class="stat-tile"><div class="lbl">Comisiones pendientes</div><div class="val">'+money(data.comisiones_pendientes)+'</div><div class="sub">comisiones pagadas: '+money(data.comisiones_pagadas)+'</div></div>' +
         '<div class="stat-tile"><div class="lbl">Clientes atendidos</div><div class="val">'+data.clientes_atendidos+'</div><div class="sub">en el rango filtrado</div></div>' +
-        '<div class="stat-tile"><div class="lbl">Servicios</div><div class="val">'+data.servicios+'</div><div class="sub">todas las líneas</div></div>';
+        '<div class="stat-tile"><div class="lbl">Servicios</div><div class="val">'+data.servicios+'</div><div class="sub">todas las líneas</div></div>' +
+        '<div class="stat-tile"><div class="lbl">Promedio de cobro</div><div class="val">'+money(data.promedio_cobro)+'</div><div class="sub">por servicio</div></div>';
 
+      renderTendencias(data);
+      renderTablaPreparadores(data.por_preparador_detalle);
       renderBar("barLineas", data.por_linea, "Sin servicios en este rango.", true);
       renderBar("barTrabajadores", data.por_trabajador, "Sin servicios en este rango.", true);
       renderBar("barTipoCita", data.por_tipo_cita, "Sin datos de tipo de cita en este rango.", false);

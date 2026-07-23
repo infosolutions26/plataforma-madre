@@ -1707,6 +1707,7 @@ def estadisticas(
     trabajador_nombres = {t.id: t.nombre for t in db.query(Trabajador).all()}
     ingresos = 0.0
     por_linea, por_trabajador, por_tipo_cita, por_metodo_pago, por_estatus, por_origen = {}, {}, {}, {}, {}, {}
+    por_dia_raw, por_semana_raw, por_mes_raw, por_preparador_raw = {}, {}, {}, {}
     for s in servicios:
         cobro = float(s.cobro)
         ingresos += cobro
@@ -1722,6 +1723,29 @@ def estadisticas(
         if linea == "Taxes":
             origen = (s.detalle or {}).get("origen") or "Sin especificar"
             por_origen[origen] = por_origen.get(origen, 0) + 1
+            dia = s.fecha.isoformat()
+            por_dia_raw[dia] = por_dia_raw.get(dia, 0) + 1
+
+        semana_inicio = (s.fecha - timedelta(days=s.fecha.weekday())).isoformat()
+        pw = por_semana_raw.setdefault(semana_inicio, {"ingresos": 0.0, "servicios": 0})
+        pw["ingresos"] += cobro
+        pw["servicios"] += 1
+
+        mes = s.fecha.strftime("%Y-%m")
+        pm = por_mes_raw.setdefault(mes, {"ingresos": 0.0, "servicios": 0})
+        pm["ingresos"] += cobro
+        pm["servicios"] += 1
+
+        pt = por_preparador_raw.setdefault(tn, {"ingresos": 0.0, "servicios": 0})
+        pt["ingresos"] += cobro
+        pt["servicios"] += 1
+
+    por_dia = {k: por_dia_raw[k] for k in sorted(por_dia_raw)}
+    por_semana = {k: por_semana_raw[k] for k in sorted(por_semana_raw)}
+    por_mes = {k: por_mes_raw[k] for k in sorted(por_mes_raw)}
+    for pt in por_preparador_raw.values():
+        pt["promedio"] = round(pt["ingresos"] / pt["servicios"], 2) if pt["servicios"] else 0
+    por_preparador_detalle = dict(sorted(por_preparador_raw.items(), key=lambda kv: -kv[1]["ingresos"]))
 
     servicio_ids = {s.id for s in servicios}
     comisiones = (
@@ -1729,6 +1753,7 @@ def estadisticas(
     )
     comisiones_pendientes = sum(float(c.monto) for c in comisiones if c.estado == EstadoComision.pendiente)
     comisiones_pagadas = sum(float(c.monto) for c in comisiones if c.estado == EstadoComision.pagada)
+    promedio_cobro = round(ingresos / len(servicios), 2) if servicios else 0.0
 
     return {
         "ingresos": ingresos,
@@ -1736,12 +1761,17 @@ def estadisticas(
         "clientes_atendidos": len({(s.persona_id, s.empresa_id) for s in servicios}),
         "comisiones_pendientes": comisiones_pendientes,
         "comisiones_pagadas": comisiones_pagadas,
+        "promedio_cobro": promedio_cobro,
         "por_linea": por_linea,
         "por_trabajador": por_trabajador,
         "por_tipo_cita": por_tipo_cita,
         "por_metodo_pago": por_metodo_pago,
         "por_estatus": por_estatus,
         "por_origen": por_origen,
+        "por_dia": por_dia,
+        "por_semana": por_semana,
+        "por_mes": por_mes,
+        "por_preparador_detalle": por_preparador_detalle,
     }
 
 
