@@ -56,6 +56,11 @@ _MIGRACIONES = [
     "ALTER TABLE pago_nomina ADD COLUMN concepto TEXT",
     "ALTER TABLE pago_nomina ADD COLUMN drive_url VARCHAR(400)",
     "ALTER TABLE trabajador ADD COLUMN permisos JSON DEFAULT '[]'",
+    "ALTER TABLE persona ADD COLUMN direccion VARCHAR(200)",
+    "ALTER TABLE persona ADD COLUMN apartamento VARCHAR(40)",
+    "ALTER TABLE persona ADD COLUMN ciudad VARCHAR(100)",
+    "ALTER TABLE persona ADD COLUMN estado VARCHAR(40)",
+    "ALTER TABLE persona ADD COLUMN zip VARCHAR(12)",
 ]
 for _sql in _MIGRACIONES:
     try:
@@ -1689,12 +1694,7 @@ def importar_pagos_historicos(body: PagoHistoricoBatchIn, db: Session = Depends(
 # ej. "Temporada 203"). Ahora todo se filtra directo por rango de fecha del
 # servicio, sin inventar nombres de periodo.
 
-@app.get("/api/estadisticas")
-def estadisticas(
-    fecha_inicio: Optional[date] = None, fecha_fin: Optional[date] = None,
-    tipo: Optional[list[str]] = Query(None),
-    db: Session = Depends(get_db), _=Depends(require_permiso("estadisticas")),
-):
+def _calcular_estadisticas(db: Session, fecha_inicio: Optional[date], fecha_fin: Optional[date], tipo: Optional[list[str]]):
     q = db.query(Servicio)
     if fecha_inicio:
         q = q.filter(Servicio.fecha >= fecha_inicio)
@@ -1706,7 +1706,7 @@ def estadisticas(
 
     trabajador_nombres = {t.id: t.nombre for t in db.query(Trabajador).all()}
     ingresos = 0.0
-    por_linea, por_trabajador, por_tipo_cita, por_metodo_pago, por_estatus, por_origen = {}, {}, {}, {}, {}, {}
+    por_linea, por_trabajador, por_tipo_cita, por_metodo_pago, por_estatus, por_origen, por_status_taxes = {}, {}, {}, {}, {}, {}, {}
     por_dia_raw, por_semana_raw, por_mes_raw, por_preparador_raw = {}, {}, {}, {}
     for s in servicios:
         cobro = float(s.cobro)
@@ -1723,8 +1723,13 @@ def estadisticas(
         if linea == "Taxes":
             origen = (s.detalle or {}).get("origen") or "Sin especificar"
             por_origen[origen] = por_origen.get(origen, 0) + 1
-            dia = s.fecha.isoformat()
-            por_dia_raw[dia] = por_dia_raw.get(dia, 0) + 1
+            status_tax = (s.detalle or {}).get("statusTaxes") or "Sin especificar"
+            por_status_taxes[status_tax] = por_status_taxes.get(status_tax, 0) + 1
+
+        dia = s.fecha.isoformat()
+        pd = por_dia_raw.setdefault(dia, {"ingresos": 0.0, "servicios": 0})
+        pd["ingresos"] += cobro
+        pd["servicios"] += 1
 
         semana_inicio = (s.fecha - timedelta(days=s.fecha.weekday())).isoformat()
         pw = por_semana_raw.setdefault(semana_inicio, {"ingresos": 0.0, "servicios": 0})
@@ -1736,21 +1741,31 @@ def estadisticas(
         pm["ingresos"] += cobro
         pm["servicios"] += 1
 
-        pt = por_preparador_raw.setdefault(tn, {"ingresos": 0.0, "servicios": 0})
+        pt = por_preparador_raw.setdefault(tn, {"ingresos": 0.0, "servicios": 0, "cerrados": 0})
         pt["ingresos"] += cobro
         pt["servicios"] += 1
+        if s.estatus in ESTATUS_LIBERA_COMISION:
+            pt["cerrados"] += 1
 
     por_dia = {k: por_dia_raw[k] for k in sorted(por_dia_raw)}
     por_semana = {k: por_semana_raw[k] for k in sorted(por_semana_raw)}
     por_mes = {k: por_mes_raw[k] for k in sorted(por_mes_raw)}
-    for pt in por_preparador_raw.values():
-        pt["promedio"] = round(pt["ingresos"] / pt["servicios"], 2) if pt["servicios"] else 0
-    por_preparador_detalle = dict(sorted(por_preparador_raw.items(), key=lambda kv: -kv[1]["ingresos"]))
 
     servicio_ids = {s.id for s in servicios}
     comisiones = (
         db.query(Comision).filter(Comision.servicio_id.in_(servicio_ids)).all() if servicio_ids else []
     )
+    comision_por_trabajador = {}
+    for c in comisiones:
+        nombre_c = trabajador_nombres.get(c.trabajador_id, "—")
+        comision_por_trabajador[nombre_c] = comision_por_trabajador.get(nombre_c, 0) + float(c.monto)
+
+    for nombre_t, pt in por_preparador_raw.items():
+        pt["promedio"] = round(pt["ingresos"] / pt["servicios"], 2) if pt["servicios"] else 0
+        pt["tasa_cierre"] = round(100 * pt["cerrados"] / pt["servicios"], 1) if pt["servicios"] else 0
+        pt["comision_generada"] = round(comision_por_trabajador.get(nombre_t, 0), 2)
+    por_preparador_detalle = dict(sorted(por_preparador_raw.items(), key=lambda kv: -kv[1]["ingresos"]))
+
     comisiones_pendientes = sum(float(c.monto) for c in comisiones if c.estado == EstadoComision.pendiente)
     comisiones_pagadas = sum(float(c.monto) for c in comisiones if c.estado == EstadoComision.pagada)
     promedio_cobro = round(ingresos / len(servicios), 2) if servicios else 0.0
@@ -1768,10 +1783,70 @@ def estadisticas(
         "por_metodo_pago": por_metodo_pago,
         "por_estatus": por_estatus,
         "por_origen": por_origen,
+        "por_status_taxes": por_status_taxes,
         "por_dia": por_dia,
         "por_semana": por_semana,
         "por_mes": por_mes,
         "por_preparador_detalle": por_preparador_detalle,
+    }
+
+
+@app.get("/api/estadisticas")
+def estadisticas(
+    fecha_inicio: Optional[date] = None, fecha_fin: Optional[date] = None,
+    tipo: Optional[list[str]] = Query(None),
+    db: Session = Depends(get_db), _=Depends(require_permiso("estadisticas")),
+):
+    return _calcular_estadisticas(db, fecha_inicio, fecha_fin, tipo)
+
+
+@app.get("/api/estadisticas/comparativo")
+def estadisticas_comparativo(
+    a_inicio: date, a_fin: date, b_inicio: date, b_fin: date,
+    tipo: Optional[list[str]] = Query(None),
+    db: Session = Depends(get_db), _=Depends(require_permiso("estadisticas")),
+):
+    return {
+        "periodo_a": _calcular_estadisticas(db, a_inicio, a_fin, tipo),
+        "periodo_b": _calcular_estadisticas(db, b_inicio, b_fin, tipo),
+    }
+
+
+@app.get("/api/estadisticas/demografico")
+def estadisticas_demografico(
+    fecha_inicio: Optional[date] = None, fecha_fin: Optional[date] = None,
+    db: Session = Depends(get_db), _=Depends(require_permiso("estadisticas")),
+):
+    """No se usa en el portal del cliente — solo para saber a cuántos estados
+    y ciudades llegamos. La dirección viene del Marketing Report de
+    TaxSlayer, no se captura a mano."""
+    q = db.query(Servicio.persona_id).filter(Servicio.persona_id.isnot(None))
+    if fecha_inicio:
+        q = q.filter(Servicio.fecha >= fecha_inicio)
+    if fecha_fin:
+        q = q.filter(Servicio.fecha <= fecha_fin)
+    persona_ids = {row[0] for row in q.distinct().all()}
+    personas = db.query(Persona).filter(Persona.id.in_(persona_ids)).all() if persona_ids else []
+
+    por_estado, por_ciudad = {}, {}
+    con_direccion = 0
+    for p in personas:
+        if p.estado:
+            con_direccion += 1
+            por_estado[p.estado] = por_estado.get(p.estado, 0) + 1
+            ciudad_key = (p.ciudad or "Ciudad sin especificar") + ", " + p.estado
+            por_ciudad[ciudad_key] = por_ciudad.get(ciudad_key, 0) + 1
+
+    por_estado = dict(sorted(por_estado.items(), key=lambda kv: -kv[1]))
+    por_ciudad = dict(sorted(por_ciudad.items(), key=lambda kv: -kv[1]))
+
+    return {
+        "clientes_en_rango": len(personas),
+        "clientes_con_direccion": con_direccion,
+        "estados_alcanzados": len(por_estado),
+        "ciudades_alcanzadas": len(por_ciudad),
+        "por_estado": por_estado,
+        "por_ciudad": por_ciudad,
     }
 
 
@@ -1960,6 +2035,92 @@ def reportes_taxslayer_aplicar(body: TaxSlayerAplicarIn, db: Session = Depends(g
         if not s:
             continue
         s.detalle = {**(s.detalle or {}), "statusTaxes": item.status_taxes}
+        actualizados += 1
+    db.commit()
+    return {"actualizados": actualizados}
+
+
+# ---------- reportes: importar Marketing Report de TaxSlayer (dashboard demográfico) ----------
+#
+# Trae dirección/ciudad/estado/zip reales por cliente — se usa solo para
+# saber a cuántos estados y ciudades llegamos (dashboard demográfico), no se
+# muestra en el portal del cliente. El nombre viene completo (no solo
+# apellido), así que el match es por conjunto de palabras del nombre
+# (sin importar el orden) + SSN, no por substring simple.
+
+def _palabras_norm_ts(s: str) -> set:
+    return {_normalizar_texto_ts(w) for w in (s or "").split() if w.strip()}
+
+
+@app.post("/api/_reportes_marketing_preview")
+async def reportes_marketing_preview(file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(require_admin)):
+    contenido = (await file.read()).decode("utf-8-sig", errors="replace")
+    reader = csv.DictReader(io.StringIO(contenido))
+    headers = reader.fieldnames or []
+    col_ssn = _buscar_columna_exacta(headers, "L4SSN")
+    col_nombre = _buscar_columna_exacta(headers, "Taxpayer Name")
+    col_dir = _buscar_columna_exacta(headers, "Address")
+    col_apt = _buscar_columna_exacta(headers, "Apartment")
+    col_ciudad = _buscar_columna_exacta(headers, "City")
+    col_estado = _buscar_columna_exacta(headers, "State")
+    col_zip = _buscar_columna_exacta(headers, "Zip")
+    if not col_ssn or not col_nombre:
+        return {
+            "ok": False, "headers": headers,
+            "error": f"No encontré las columnas L4SSN / Taxpayer Name en este archivo. Encabezados: {', '.join(headers)}",
+        }
+
+    personas = db.query(Persona).filter(Persona.ssn_last4.isnot(None)).all()
+    filas = []
+    for row in reader:
+        ssn_raw = (row.get(col_ssn) or "").strip()
+        ssn4 = ssn_raw[-4:] if ssn_raw else ""
+        nombre_raw = row.get(col_nombre) or ""
+        palabras_csv = _palabras_norm_ts(nombre_raw)
+
+        candidatos = [
+            p for p in personas
+            if p.ssn_last4 == ssn4 and palabras_csv and palabras_csv.issubset(_palabras_norm_ts(p.nombre))
+        ] if ssn4 else []
+        ambiguo = len(candidatos) > 1
+        match = candidatos[0] if len(candidatos) == 1 else None
+
+        filas.append({
+            "ssn_last4": ssn4, "nombre_csv": nombre_raw,
+            "direccion": (row.get(col_dir) or "").strip() if col_dir else "",
+            "apartamento": (row.get(col_apt) or "").strip() if col_apt else "",
+            "ciudad": (row.get(col_ciudad) or "").strip() if col_ciudad else "",
+            "estado": (row.get(col_estado) or "").strip() if col_estado else "",
+            "zip": (row.get(col_zip) or "").strip() if col_zip else "",
+            "cliente_id": match.id if match else None, "cliente_nombre": match.nombre if match else None,
+            "ya_tiene_direccion": bool(match and match.estado) if match else False,
+            "ambiguo": ambiguo,
+        })
+    return {"ok": True, "filas": filas}
+
+
+class MarketingAplicarItem(BaseModel):
+    persona_id: int
+    direccion: Optional[str] = None
+    apartamento: Optional[str] = None
+    ciudad: Optional[str] = None
+    estado: Optional[str] = None
+    zip: Optional[str] = None
+
+
+class MarketingAplicarIn(BaseModel):
+    items: list[MarketingAplicarItem]
+
+
+@app.post("/api/_reportes_marketing_aplicar")
+def reportes_marketing_aplicar(body: MarketingAplicarIn, db: Session = Depends(get_db), _=Depends(require_admin)):
+    actualizados = 0
+    for item in body.items:
+        p = db.get(Persona, item.persona_id)
+        if not p:
+            continue
+        p.direccion, p.apartamento = item.direccion, item.apartamento
+        p.ciudad, p.estado, p.zip = item.ciudad, item.estado, item.zip
         actualizados += 1
     db.commit()
     return {"actualizados": actualizados}

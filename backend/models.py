@@ -64,6 +64,14 @@ class Persona(Base):
     ghl_contact_id: Mapped[Optional[str]] = mapped_column(String(60))
     drive_folder_id: Mapped[Optional[str]] = mapped_column(String(120))
     actividad: Mapped[str] = mapped_column(String(60), default="Activa")
+    # Dirección — solo para el dashboard demográfico (estados/ciudades alcanzados),
+    # no se muestra en el portal del cliente. Se llena importando el Marketing
+    # Report de TaxSlayer, no se captura a mano en el flujo normal.
+    direccion: Mapped[Optional[str]] = mapped_column(String(200))
+    apartamento: Mapped[Optional[str]] = mapped_column(String(40))
+    ciudad: Mapped[Optional[str]] = mapped_column(String(100))
+    estado: Mapped[Optional[str]] = mapped_column(String(40))
+    zip: Mapped[Optional[str]] = mapped_column(String(12))
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     empresas: Mapped[list["EmpresaDueno"]] = relationship(back_populates="persona")

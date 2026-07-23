@@ -365,6 +365,23 @@
   .subtab:hover { color: var(--ink); }
   .subtab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
+  /* ---- alternar granularidad de una gráfica (día/semana/mes) ---- */
+  .chart-toggle { display: flex; gap: 4px; }
+  .chart-toggle button {
+    padding: 4px 11px; font-size: 11.5px; font-weight: 600; border: 1px solid var(--line);
+    background: var(--surface); border-radius: 6px; cursor: pointer; color: var(--ink-soft);
+  }
+  .chart-toggle button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  /* ---- tiles comparativo (dos periodos lado a lado) ---- */
+  .compare-tile { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--surface); }
+  .compare-tile .lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-faint); }
+  .compare-tile .row { display: flex; align-items: baseline; gap: 10px; margin-top: 4px; }
+  .compare-tile .valA, .compare-tile .valB { font-size: 18px; font-weight: 700; }
+  .compare-tile .delta { font-size: 12px; font-weight: 700; padding: 1px 7px; border-radius: 10px; }
+  .compare-tile .delta.up { background: var(--accent-soft); color: var(--accent-ink); }
+  .compare-tile .delta.down { background: var(--crit-soft); color: var(--crit); }
+
   /* ---- multi-select desplegable (ej. tipo de servicio en Estadísticas) ---- */
   .multiselect { position: relative; }
   .ms-toggle { width: 100%; justify-content: space-between; display: flex; text-align: left; }
@@ -880,74 +897,181 @@
             </div>
           </div>
 
-          <div class="stat-row" id="statsResumen"></div>
-
-          <div class="panel">
-            <h2>Taxes por día</h2>
-            <p class="hint" style="margin:-4px 0 10px;">Solo servicios de la línea Taxes. Si el rango de fechas es muy largo (más de 60 días con datos), se muestra por semana en su lugar.</p>
-            <div id="chartPorDia"></div>
+          <div class="subtabs" id="statsTabs">
+            <div class="subtab active" data-tab="general">Desempeño General</div>
+            <div class="subtab" data-tab="preparadores">Preparadores</div>
+            <div class="subtab" data-tab="caracteristicas">Características de Servicios</div>
+            <div class="subtab" data-tab="comparativo">Comparativo</div>
+            <div class="subtab" data-tab="demografico">Demográfico</div>
           </div>
 
-          <div class="panel">
-            <h2>Ingresos por semana</h2>
-            <div id="chartPorSemana"></div>
+          <!-- ---- TAB: Desempeño General ---- -->
+          <div class="stats-tab" id="statsTab-general">
+            <div class="stat-row" id="statsResumen"></div>
+
+            <div class="panel">
+              <div class="h2row">
+                <h2>Servicios de Taxes</h2>
+                <div class="chart-toggle" id="toggleServicios">
+                  <button type="button" data-g="dia" class="active">Día</button>
+                  <button type="button" data-g="semana">Semana</button>
+                  <button type="button" data-g="mes">Mes</button>
+                </div>
+              </div>
+              <p class="hint" id="chartServiciosHint" style="margin:-4px 0 10px;">Solo servicios de la línea Taxes.</p>
+              <div id="chartServicios"></div>
+            </div>
+
+            <div class="panel">
+              <div class="h2row">
+                <h2>Ingresos</h2>
+                <div class="chart-toggle" id="toggleIngresos">
+                  <button type="button" data-g="dia">Día</button>
+                  <button type="button" data-g="semana" class="active">Semana</button>
+                  <button type="button" data-g="mes">Mes</button>
+                </div>
+              </div>
+              <p class="hint" style="margin:-4px 0 10px;">Todas las líneas de servicio (según el filtro de arriba).</p>
+              <div id="chartIngresos"></div>
+            </div>
+
+            <div class="panel">
+              <h2>Ingresos por línea de servicio</h2>
+              <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+                <div id="barLineas" style="flex:1; min-width:220px;"></div>
+                <div id="pieLineas" style="display:flex; gap:14px; align-items:center;"></div>
+              </div>
+            </div>
           </div>
 
-          <div class="panel">
-            <h2>Histórico mensual</h2>
-            <div id="chartPorMes"></div>
-          </div>
-
-          <div class="panel">
-            <h2>Desempeño por preparador</h2>
-            <div class="table-wrap" style="border:none;">
-              <table>
-                <thead><tr><th>Trabajador</th><th class="num">Servicios</th><th class="num">Ingresos</th><th class="num">Promedio de cobro</th></tr></thead>
-                <tbody id="tablaPreparadores"></tbody>
-              </table>
+          <!-- ---- TAB: Preparadores ---- -->
+          <div class="stats-tab" id="statsTab-preparadores" style="display:none;">
+            <div class="panel">
+              <h2>Desempeño por preparador</h2>
+              <p class="hint" style="margin:-4px 0 10px;">"Cerrados" = servicios cuyo estatus de pago ya libera comisión (Pagado / Banco Pagado).</p>
+              <div class="table-wrap" style="border:none;">
+                <table>
+                  <thead><tr>
+                    <th>Trabajador</th><th class="num">Servicios atendidos</th><th class="num">Servicios cerrados</th>
+                    <th class="num">Tasa de cierre</th><th class="num">Ingresos</th><th class="num">Promedio de cobro</th><th class="num">Comisión generada</th>
+                  </tr></thead>
+                  <tbody id="tablaPreparadores"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="panel">
+              <h2>Ingresos por preparador</h2>
+              <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+                <div id="barTrabajadores" style="flex:1; min-width:220px;"></div>
+                <div id="pieTrabajadores" style="display:flex; gap:14px; align-items:center;"></div>
+              </div>
             </div>
           </div>
 
-          <div class="panel">
-            <h2>Ingresos por línea de servicio</h2>
-            <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
-              <div id="barLineas" style="flex:1; min-width:220px;"></div>
-              <div id="pieLineas" style="display:flex; gap:14px; align-items:center;"></div>
+          <!-- ---- TAB: Características de Servicios ---- -->
+          <div class="stats-tab" id="statsTab-caracteristicas" style="display:none;">
+            <div class="panel">
+              <h2>Tipo de cita</h2>
+              <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+                <div id="barTipoCita" style="flex:1; min-width:220px;"></div>
+                <div id="pieTipoCita" style="display:flex; gap:14px; align-items:center;"></div>
+              </div>
+            </div>
+            <div class="panel">
+              <h2>Método de pago</h2>
+              <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+                <div id="barMetodoPago" style="flex:1; min-width:220px;"></div>
+                <div id="pieMetodoPago" style="display:flex; gap:14px; align-items:center;"></div>
+              </div>
+            </div>
+            <div class="panel">
+              <h2>Origen de clientes (Taxes)</h2>
+              <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+                <div id="barOrigen" style="flex:1; min-width:220px;"></div>
+                <div id="pieOrigen" style="display:flex; gap:14px; align-items:center;"></div>
+              </div>
+            </div>
+            <div class="panel">
+              <h2>Estatus de pago</h2>
+              <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+                <div id="barEstatus" style="flex:1; min-width:220px;"></div>
+                <div id="pieEstatus" style="display:flex; gap:14px; align-items:center;"></div>
+              </div>
+            </div>
+            <div class="panel">
+              <h2>Estatus del tax (Taxes)</h2>
+              <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+                <div id="barStatusTaxes" style="flex:1; min-width:220px;"></div>
+                <div id="pieStatusTaxes" style="display:flex; gap:14px; align-items:center;"></div>
+              </div>
             </div>
           </div>
-          <div class="panel">
-            <h2>Ingresos por preparador</h2>
-            <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
-              <div id="barTrabajadores" style="flex:1; min-width:220px;"></div>
-              <div id="pieTrabajadores" style="display:flex; gap:14px; align-items:center;"></div>
+
+          <!-- ---- TAB: Comparativo ---- -->
+          <div class="stats-tab" id="statsTab-comparativo" style="display:none;">
+            <div class="panel">
+              <h2>Comparar dos periodos</h2>
+              <div class="field-row">
+                <div class="field"><label>Periodo A — Desde</label><input type="date" lang="en-US" id="cmpADesde"></div>
+                <div class="field"><label>Periodo A — Hasta</label><input type="date" lang="en-US" id="cmpAHasta"></div>
+              </div>
+              <div class="field-row">
+                <div class="field"><label>Periodo B — Desde</label><input type="date" lang="en-US" id="cmpBDesde"></div>
+                <div class="field"><label>Periodo B — Hasta</label><input type="date" lang="en-US" id="cmpBHasta"></div>
+              </div>
+              <button class="btn primary small" id="btnComparar" type="button" style="margin-top:4px;">Comparar</button>
+              <p class="hint" style="margin-top:8px;">Usa el mismo filtro de "Tipo de servicio" de arriba. Ej. compara la temporada actual contra la misma temporada del año pasado.</p>
+            </div>
+            <div class="panel" id="panelComparativoResultado" style="display:none;">
+              <h2>Resultado</h2>
+              <div class="stat-row" id="cmpTiles"></div>
+              <div class="h2row" style="margin-top:14px;"><h2>Características — Periodo A vs Periodo B</h2></div>
+              <div id="cmpCaracteristicas"></div>
             </div>
           </div>
-          <div class="panel">
-            <h2>Tipo de cita</h2>
-            <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
-              <div id="barTipoCita" style="flex:1; min-width:220px;"></div>
-              <div id="pieTipoCita" style="display:flex; gap:14px; align-items:center;"></div>
+
+          <!-- ---- TAB: Demográfico ---- -->
+          <div class="stats-tab" id="statsTab-demografico" style="display:none;">
+            <div class="panel">
+              <h2>Importar Marketing Report de TaxSlayer</h2>
+              <p class="hint" style="margin:-4px 0 10px;">Trae dirección, ciudad, estado y zip reales por cliente — solo se usa para saber a cuántos estados y ciudades llegamos, no se muestra en el portal del cliente.</p>
+              <div class="field-row">
+                <div class="field"><label>Archivo CSV</label><input type="file" id="demoFile" accept=".csv"></div>
+                <div class="field" style="justify-content:flex-end;"><button class="btn small" id="btnDemoAnalizar" type="button">Subir y analizar</button></div>
+              </div>
+              <p class="hint" id="demoEstado" style="min-height:16px;"></p>
             </div>
-          </div>
-          <div class="panel">
-            <h2>Método de pago</h2>
-            <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
-              <div id="barMetodoPago" style="flex:1; min-width:220px;"></div>
-              <div id="pieMetodoPago" style="display:flex; gap:14px; align-items:center;"></div>
+            <div class="panel" id="demoPanelRevision" style="display:none;">
+              <div class="h2row">
+                <h2>Revisión antes de aplicar</h2>
+                <div style="display:flex; gap:8px;">
+                  <button class="btn small" id="btnDemoMarcarTodo" type="button">Marcar coincidencias claras</button>
+                  <button class="btn primary small" id="btnDemoAplicar" type="button">Aplicar seleccionados</button>
+                </div>
+              </div>
+              <p class="hint" id="demoResumen" style="margin:-4px 0 10px;"></p>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th></th><th>Cliente</th><th>SSN</th><th>Dirección</th><th>Ciudad</th><th>Estado</th><th>Zip</th></tr></thead>
+                  <tbody id="demoResultBody"></tbody>
+                </table>
+              </div>
             </div>
-          </div>
-          <div class="panel">
-            <h2>Estatus de pago</h2>
-            <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
-              <div id="barEstatus" style="flex:1; min-width:220px;"></div>
-              <div id="pieEstatus" style="display:flex; gap:14px; align-items:center;"></div>
-            </div>
-          </div>
-          <div class="panel">
-            <h2>Origen de clientes (Taxes)</h2>
-            <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
-              <div id="barOrigen" style="flex:1; min-width:220px;"></div>
-              <div id="pieOrigen" style="display:flex; gap:14px; align-items:center;"></div>
+            <div class="panel">
+              <h2>Expansión geográfica</h2>
+              <div class="field-row" style="margin-bottom:4px;">
+                <div class="field"><label>Desde</label><input type="date" lang="en-US" id="demoFechaInicio"></div>
+                <div class="field"><label>Hasta</label><input type="date" lang="en-US" id="demoFechaFin"></div>
+                <div class="field" style="justify-content:flex-end;"><button class="btn small" id="btnDemoFiltrar" type="button">Aplicar</button></div>
+              </div>
+              <div class="stat-row" id="demoTiles"></div>
+              <div class="h2row" style="margin-top:10px;"><h2>Por estado</h2></div>
+              <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+                <div id="barEstados" style="flex:1; min-width:220px;"></div>
+                <div id="pieEstados" style="display:flex; gap:14px; align-items:center;"></div>
+              </div>
+              <div class="h2row" style="margin-top:14px;"><h2>Por ciudad (top 15)</h2></div>
+              <div id="barCiudades"></div>
             </div>
           </div>
 
@@ -3012,32 +3136,52 @@
       return '<div class="vbar-col" title="'+labels[i]+': '+val+'"><div class="vbar-fill" style="height:'+h+'%"></div><div class="vbar-label">'+labels[i]+'</div></div>';
     }).join("") + '</div>';
   }
-  function renderTendencias(data){
-    var diasKeys = Object.keys(data.por_dia || {});
-    if (diasKeys.length > 0 && diasKeys.length <= 60) {
-      renderBarChartVertical("chartPorDia", diasKeys, diasKeys.map(function(k){ return data.por_dia[k]; }),
-        diasKeys.map(fmtDiaCorto), "Sin taxes en este rango.", false);
-    } else if (diasKeys.length > 60) {
-      document.getElementById("chartPorDia").innerHTML = '<p class="hint">Hay '+diasKeys.length+' días con datos en este rango — acota el filtro de fecha a menos de 60 días para ver el detalle diario. Mientras tanto, revisa "Ingresos por semana" abajo.</p>';
-    } else {
-      document.getElementById("chartPorDia").innerHTML = '<p class="hint">Sin taxes en este rango.</p>';
+  function granularidadKeysYLabels(data, g){
+    var obj = g === "dia" ? data.por_dia : g === "semana" ? data.por_semana : data.por_mes;
+    obj = obj || {};
+    var keys = Object.keys(obj);
+    var fmt = g === "mes" ? fmtMesCorto : fmtDiaCorto;
+    return {obj: obj, keys: keys, labels: keys.map(fmt)};
+  }
+  function renderChartGranular(elId, hintElId, campo, esDinero, data, g){
+    var r = granularidadKeysYLabels(data, g);
+    if (g === "dia" && r.keys.length > 60) {
+      document.getElementById(elId).innerHTML = '<p class="hint">Hay '+r.keys.length+' días con datos en este rango — cambia a "Semana" o "Mes" arriba, o acota el filtro de fecha.</p>';
+      return;
     }
-
-    var semKeys = Object.keys(data.por_semana || {});
-    renderBarChartVertical("chartPorSemana", semKeys, semKeys.map(function(k){ return data.por_semana[k].ingresos; }),
-      semKeys.map(fmtDiaCorto), "Sin servicios en este rango.", true);
-
-    var mesKeys = Object.keys(data.por_mes || {});
-    renderBarChartVertical("chartPorMes", mesKeys, mesKeys.map(function(k){ return data.por_mes[k].servicios; }),
-      mesKeys.map(fmtMesCorto), "Sin servicios en este rango.", false);
+    var values = r.keys.map(function(k){ return r.obj[k][campo]; });
+    renderBarChartVertical(elId, r.keys, values, r.labels, "Sin datos en este rango.", esDinero);
+  }
+  function wireGranularToggle(toggleId, onChange){
+    var wrap = document.getElementById(toggleId);
+    wrap.querySelectorAll("button").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        wrap.querySelectorAll("button").forEach(function(b){ b.classList.remove("active"); });
+        btn.classList.add("active");
+        onChange(btn.dataset.g);
+      });
+    });
+  }
+  state.statsData = null;
+  wireGranularToggle("toggleServicios", function(g){ if (state.statsData) renderChartGranular("chartServicios", null, "servicios", false, state.statsData, g); });
+  wireGranularToggle("toggleIngresos", function(g){ if (state.statsData) renderChartGranular("chartIngresos", null, "ingresos", true, state.statsData, g); });
+  function granularidadActiva(toggleId){
+    var btn = document.querySelector("#"+toggleId+" button.active");
+    return btn ? btn.dataset.g : "dia";
+  }
+  function renderTendencias(data){
+    renderChartGranular("chartServicios", null, "servicios", false, data, granularidadActiva("toggleServicios"));
+    renderChartGranular("chartIngresos", null, "ingresos", true, data, granularidadActiva("toggleIngresos"));
   }
   function renderTablaPreparadores(detalle){
     var tbody = document.getElementById("tablaPreparadores");
     var nombres = Object.keys(detalle || {});
-    if (!nombres.length) { tbody.innerHTML = '<tr><td colspan="4"><p class="hint" style="padding:10px 0;">Sin servicios en este rango.</p></td></tr>'; return; }
+    if (!nombres.length) { tbody.innerHTML = '<tr><td colspan="7"><p class="hint" style="padding:10px 0;">Sin servicios en este rango.</p></td></tr>'; return; }
     tbody.innerHTML = nombres.map(function(n){
       var d = detalle[n];
-      return '<tr><td>'+n+'</td><td class="num">'+d.servicios+'</td><td class="num">'+money(d.ingresos)+'</td><td class="num">'+money(d.promedio)+'</td></tr>';
+      return '<tr><td>'+n+'</td><td class="num">'+d.servicios+'</td><td class="num">'+d.cerrados+'</td>' +
+        '<td class="num">'+d.tasa_cierre+'%</td><td class="num">'+money(d.ingresos)+'</td>' +
+        '<td class="num">'+money(d.promedio)+'</td><td class="num">'+money(d.comision_generada)+'</td></tr>';
     }).join("");
   }
   function cargarCatalogosStats(){
@@ -3126,6 +3270,7 @@
       (state.statsTipoMs ? state.statsTipoMs.getSelected() : []).forEach(function(t){ params.append("tipo", t); });
       return api("/api/estadisticas?" + params.toString());
     }).then(function(data){
+      state.statsData = data;
       document.getElementById("statsResumen").innerHTML =
         '<div class="stat-tile"><div class="lbl">Ingresos</div><div class="val">'+money(data.ingresos)+'</div><div class="sub">en el rango filtrado</div></div>' +
         '<div class="stat-tile"><div class="lbl">Comisiones pendientes</div><div class="val">'+money(data.comisiones_pendientes)+'</div><div class="sub">comisiones pagadas: '+money(data.comisiones_pagadas)+'</div></div>' +
@@ -3141,14 +3286,158 @@
       renderBar("barMetodoPago", data.por_metodo_pago, "Sin datos de método de pago en este rango.", false);
       renderBar("barEstatus", data.por_estatus, "Sin datos de estatus en este rango.", false);
       renderBar("barOrigen", data.por_origen, "Sin datos de origen en este rango.", false);
+      renderBar("barStatusTaxes", data.por_status_taxes, "Sin datos de estatus del tax en este rango.", false);
       renderPie("pieLineas", data.por_linea);
       renderPie("pieTrabajadores", data.por_trabajador);
       renderPie("pieTipoCita", data.por_tipo_cita);
       renderPie("pieMetodoPago", data.por_metodo_pago);
       renderPie("pieEstatus", data.por_estatus);
       renderPie("pieOrigen", data.por_origen);
+      renderPie("pieStatusTaxes", data.por_status_taxes);
     });
   }
+
+  // ---------- pestañas horizontales de Estadísticas ----------
+  document.querySelectorAll("#statsTabs .subtab").forEach(function(tab){
+    tab.addEventListener("click", function(){
+      document.querySelectorAll("#statsTabs .subtab").forEach(function(t){ t.classList.remove("active"); });
+      tab.classList.add("active");
+      document.querySelectorAll(".stats-tab").forEach(function(panel){ panel.style.display = "none"; });
+      document.getElementById("statsTab-" + tab.dataset.tab).style.display = "block";
+      if (tab.dataset.tab === "demografico" && !state.demoCargado) { state.demoCargado = true; cargarDemografico(); }
+    });
+  });
+
+  // ---------- comparativo (Estadísticas) ----------
+  document.getElementById("btnComparar").addEventListener("click", function(){
+    var aI = document.getElementById("cmpADesde").value, aF = document.getElementById("cmpAHasta").value;
+    var bI = document.getElementById("cmpBDesde").value, bF = document.getElementById("cmpBHasta").value;
+    if (!aI || !aF || !bI || !bF) { alert("Completa las 4 fechas de los dos periodos."); return; }
+    var params = new URLSearchParams({a_inicio: aI, a_fin: aF, b_inicio: bI, b_fin: bF});
+    (state.statsTipoMs ? state.statsTipoMs.getSelected() : []).forEach(function(t){ params.append("tipo", t); });
+    api("/api/estadisticas/comparativo?" + params.toString()).then(function(r){
+      renderComparativo(r.periodo_a, r.periodo_b);
+    }).catch(function(e){ alert("No se pudo comparar: " + e.message); });
+  });
+  function deltaHtml(a, b, esDinero){
+    var av = esDinero ? money(a) : a, bv = esDinero ? money(b) : b;
+    var pct = a ? Math.round(100 * (b - a) / a) : (b ? 100 : 0);
+    var cls = pct >= 0 ? "up" : "down";
+    var signo = pct >= 0 ? "+" : "";
+    return '<div class="row"><span class="valA">' + av + '</span><span style="color:var(--ink-faint);">→</span><span class="valB">' + bv + '</span></div>' +
+      '<span class="delta ' + cls + '">' + signo + pct + '%</span>';
+  }
+  function compareTile(label, a, b, esDinero){
+    return '<div class="compare-tile"><div class="lbl">' + label + '</div>' + deltaHtml(a, b, esDinero) + '</div>';
+  }
+  function miniCompareBar(titulo, objA, objB, esDinero){
+    objA = objA || {}; objB = objB || {};
+    var keys = Object.keys(objA).concat(Object.keys(objB)).filter(function(k, i, arr){ return arr.indexOf(k) === i; });
+    if (!keys.length) return '<div class="panel"><h2 style="font-size:13px;">' + titulo + '</h2><p class="hint">Sin datos.</p></div>';
+    var rows = keys.map(function(k){
+      var va = objA[k] || 0, vb = objB[k] || 0;
+      var max = Math.max(va, vb, 1);
+      return '<div style="margin-bottom:10px;"><div style="font-size:12px; color:var(--ink-soft); margin-bottom:3px;">' + k + '</div>' +
+        '<div style="display:flex; align-items:center; gap:6px;"><span style="width:16px; font-size:10px; color:var(--ink-faint);">A</span><div class="bar-track" style="flex:1;"><div class="bar-fill" style="width:' + (100 * va / max) + '%;"></div></div><span style="width:64px; text-align:right; font-size:11px; font-family:ui-monospace,monospace;">' + (esDinero ? money(va) : va) + '</span></div>' +
+        '<div style="display:flex; align-items:center; gap:6px;"><span style="width:16px; font-size:10px; color:var(--ink-faint);">B</span><div class="bar-track" style="flex:1;"><div class="bar-fill" style="width:' + (100 * vb / max) + '%; background:#8fc9a0;"></div></div><span style="width:64px; text-align:right; font-size:11px; font-family:ui-monospace,monospace;">' + (esDinero ? money(vb) : vb) + '</span></div>' +
+        '</div>';
+    }).join("");
+    return '<div class="panel"><h2 style="font-size:13px;">' + titulo + '</h2>' + rows + '</div>';
+  }
+  function renderComparativo(a, b){
+    document.getElementById("panelComparativoResultado").style.display = "block";
+    document.getElementById("cmpTiles").innerHTML =
+      compareTile("Ingresos", a.ingresos, b.ingresos, true) +
+      compareTile("Servicios", a.servicios, b.servicios, false) +
+      compareTile("Clientes atendidos", a.clientes_atendidos, b.clientes_atendidos, false) +
+      compareTile("Promedio de cobro", a.promedio_cobro, b.promedio_cobro, true);
+    document.getElementById("cmpCaracteristicas").innerHTML =
+      miniCompareBar("Ingresos por línea", a.por_linea, b.por_linea, true) +
+      miniCompareBar("Tipo de cita", a.por_tipo_cita, b.por_tipo_cita, false) +
+      miniCompareBar("Método de pago", a.por_metodo_pago, b.por_metodo_pago, false) +
+      miniCompareBar("Origen", a.por_origen, b.por_origen, false) +
+      miniCompareBar("Estatus de pago", a.por_estatus, b.por_estatus, false) +
+      miniCompareBar("Estatus del tax", a.por_status_taxes, b.por_status_taxes, false);
+  }
+
+  // ---------- demográfico (Estadísticas) ----------
+  state.demoFilas = [];
+  document.getElementById("btnDemoAnalizar").addEventListener("click", function(){
+    var file = document.getElementById("demoFile").files[0];
+    if (!file) { alert("Elige primero el archivo CSV."); return; }
+    var estado = document.getElementById("demoEstado");
+    estado.textContent = "Analizando…";
+    var fd = new FormData();
+    fd.append("file", file);
+    uploadFile("/api/_reportes_marketing_preview", fd).then(function(r){
+      if (!r.ok) { estado.textContent = r.error; return; }
+      state.demoFilas = r.filas;
+      estado.textContent = r.filas.length + " renglones procesados.";
+      renderDemoRevision();
+    }).catch(function(e){ estado.textContent = ""; alert("No se pudo analizar el archivo: " + e.message); });
+  });
+  function renderDemoRevision(){
+    var tbody = document.getElementById("demoResultBody");
+    tbody.innerHTML = "";
+    var conMatch = 0;
+    state.demoFilas.forEach(function(f, idx){
+      var tr = el("tr");
+      if (f.cliente_id) conMatch++;
+      var tdCheck = el("td");
+      var cb = el("input"); cb.type = "checkbox"; cb.dataset.idx = idx;
+      cb.disabled = !f.cliente_id || f.ambiguo;
+      cb.checked = !!(f.cliente_id && !f.ambiguo);
+      tdCheck.appendChild(cb);
+      var clienteTxt = f.cliente_nombre || ("Sin coincidencia (" + (f.nombre_csv || "—") + ")");
+      if (f.ambiguo) clienteTxt += " ⚠ ambiguo";
+      else if (f.ya_tiene_direccion) clienteTxt += " (ya tenía dirección, se reemplaza)";
+      [tdCheck, el("td", null, clienteTxt), el("td", null, "•••" + (f.ssn_last4 || "—")), el("td", null, f.direccion || "—"),
+        el("td", null, f.ciudad || "—"), el("td", null, f.estado || "—"), el("td", null, f.zip || "—")]
+        .forEach(function(td){ tr.appendChild(td); });
+      tbody.appendChild(tr);
+    });
+    document.getElementById("demoResumen").textContent = state.demoFilas.length + " filas · " + conMatch + " con cliente identificado.";
+    document.getElementById("demoPanelRevision").style.display = "block";
+  }
+  document.getElementById("btnDemoMarcarTodo").addEventListener("click", function(){
+    document.querySelectorAll("#demoResultBody input[type=checkbox]").forEach(function(cb){ if (!cb.disabled) cb.checked = true; });
+  });
+  document.getElementById("btnDemoAplicar").addEventListener("click", function(){
+    var items = [];
+    document.querySelectorAll("#demoResultBody input[type=checkbox]:checked").forEach(function(cb){
+      var f = state.demoFilas[cb.dataset.idx];
+      items.push({persona_id: f.cliente_id, direccion: f.direccion, apartamento: f.apartamento, ciudad: f.ciudad, estado: f.estado, zip: f.zip});
+    });
+    if (!items.length) { alert("No hay filas marcadas para aplicar."); return; }
+    if (!confirm("¿Aplicar dirección a " + items.length + " cliente(s)?")) return;
+    api("/api/_reportes_marketing_aplicar", {method:"POST", body:{items: items}}).then(function(r){
+      alert(r.actualizados + " cliente(s) actualizados.");
+      document.getElementById("demoPanelRevision").style.display = "none";
+      document.getElementById("demoFile").value = "";
+      document.getElementById("demoEstado").textContent = "";
+      state.demoFilas = [];
+      cargarDemografico();
+    }).catch(function(e){ alert("No se pudo aplicar: " + e.message); });
+  });
+  function cargarDemografico(){
+    var params = new URLSearchParams();
+    var fi = document.getElementById("demoFechaInicio").value, ff = document.getElementById("demoFechaFin").value;
+    if (fi) params.set("fecha_inicio", fi);
+    if (ff) params.set("fecha_fin", ff);
+    api("/api/estadisticas/demografico?" + params.toString()).then(function(data){
+      document.getElementById("demoTiles").innerHTML =
+        '<div class="stat-tile"><div class="lbl">Estados alcanzados</div><div class="val">'+data.estados_alcanzados+'</div><div class="sub">de los clientes con dirección</div></div>' +
+        '<div class="stat-tile"><div class="lbl">Ciudades alcanzadas</div><div class="val">'+data.ciudades_alcanzadas+'</div><div class="sub">de los clientes con dirección</div></div>' +
+        '<div class="stat-tile"><div class="lbl">Clientes con dirección</div><div class="val">'+data.clientes_con_direccion+'</div><div class="sub">de '+data.clientes_en_rango+' en el rango</div></div>';
+      renderBar("barEstados", data.por_estado, "Sin datos de dirección todavía — sube el Marketing Report arriba.", false);
+      renderPie("pieEstados", data.por_estado);
+      var ciudadesTop = {};
+      Object.keys(data.por_ciudad).slice(0, 15).forEach(function(k){ ciudadesTop[k] = data.por_ciudad[k]; });
+      var ckeys = Object.keys(ciudadesTop);
+      renderBarChartVertical("barCiudades", ckeys, ckeys.map(function(k){ return ciudadesTop[k]; }), ckeys, "Sin datos todavía.", false);
+    });
+  }
+  document.getElementById("btnDemoFiltrar").addEventListener("click", cargarDemografico);
 
   // ---------- filtros avanzados / exportación ----------
   state.advResultados = [];
