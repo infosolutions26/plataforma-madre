@@ -907,6 +907,13 @@
               <div id="pieEstatus" style="display:flex; gap:14px; align-items:center;"></div>
             </div>
           </div>
+          <div class="panel">
+            <h2>Origen de clientes (Taxes)</h2>
+            <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+              <div id="barOrigen" style="flex:1; min-width:220px;"></div>
+              <div id="pieOrigen" style="display:flex; gap:14px; align-items:center;"></div>
+            </div>
+          </div>
 
           <div class="panel">
             <h2>Filtros avanzados y seguimiento general</h2>
@@ -1161,17 +1168,20 @@
   "use strict";
 
   var STATUS_TAXES_OPTIONS = ["Transmitido Aceptado","Enviado por Correo","En proceso / Incompleto","Rechazado","Pendiente de Correo","Revisión Pendiente","Listo para Transmitir","Enviado a Certificar","Falta Estado"];
+  var ORIGEN_OPTIONS = ["Referido","Cliente","Redes","Calle","Google Maps"];
   var SERVICE_TYPES = {
     "Taxes 1040": { linea: "Taxes", extra: [
       {key:"ssn", label:"SSN / ITIN completo", type:"text"},
       {key:"anio", label:"Año de servicio", type:"select", options:["2026","2025","2024"]},
       {key:"tipoCita", label:"Tipo de cita", type:"select", options:["Presencial","Virtual","Llamada / mensaje"]},
-      {key:"statusTaxes", label:"Status taxes", type:"select", options:STATUS_TAXES_OPTIONS, default:"En proceso / Incompleto"}
+      {key:"statusTaxes", label:"Status taxes", type:"select", options:STATUS_TAXES_OPTIONS, default:"En proceso / Incompleto"},
+      {key:"origen", label:"Origen", type:"select", options:ORIGEN_OPTIONS}
     ]},
     "ITIN + Taxes": { linea: "Taxes", extra: [
       {key:"ssn", label:"ITIN (si ya existe)", type:"text"},
       {key:"anio", label:"Año de servicio", type:"select", options:["2026","2025","2024"]},
-      {key:"statusTaxes", label:"Status taxes", type:"select", options:STATUS_TAXES_OPTIONS, default:"En proceso / Incompleto"}
+      {key:"statusTaxes", label:"Status taxes", type:"select", options:STATUS_TAXES_OPTIONS, default:"En proceso / Incompleto"},
+      {key:"origen", label:"Origen", type:"select", options:ORIGEN_OPTIONS}
     ]},
     "Contabilidad Completa": { linea: "Contabilidad", extra: [
       {key:"nivel", label:"Nivel", type:"select", options:["1","2","3","4"]},
@@ -3049,11 +3059,13 @@
       renderBar("barTipoCita", data.por_tipo_cita, "Sin datos de tipo de cita en este rango.", false);
       renderBar("barMetodoPago", data.por_metodo_pago, "Sin datos de método de pago en este rango.", false);
       renderBar("barEstatus", data.por_estatus, "Sin datos de estatus en este rango.", false);
+      renderBar("barOrigen", data.por_origen, "Sin datos de origen en este rango.", false);
       renderPie("pieLineas", data.por_linea);
       renderPie("pieTrabajadores", data.por_trabajador);
       renderPie("pieTipoCita", data.por_tipo_cita);
       renderPie("pieMetodoPago", data.por_metodo_pago);
       renderPie("pieEstatus", data.por_estatus);
+      renderPie("pieOrigen", data.por_origen);
     });
   }
 

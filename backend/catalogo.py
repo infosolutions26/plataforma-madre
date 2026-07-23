@@ -7,11 +7,11 @@ que usa el prototipo interactivo, para que ambos queden sincronizados.
 SERVICE_TYPES: dict[str, dict] = {
     "Taxes 1040": {
         "linea": "Taxes",
-        "extra": ["ssn", "anio", "tipoCita", "statusTaxes"],
+        "extra": ["ssn", "anio", "tipoCita", "statusTaxes", "origen"],
     },
     "ITIN + Taxes": {
         "linea": "Taxes",
-        "extra": ["ssn", "anio", "statusTaxes"],
+        "extra": ["ssn", "anio", "statusTaxes", "origen"],
     },
     "Contabilidad Completa": {
         "linea": "Contabilidad",

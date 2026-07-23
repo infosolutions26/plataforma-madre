@@ -1706,7 +1706,7 @@ def estadisticas(
 
     trabajador_nombres = {t.id: t.nombre for t in db.query(Trabajador).all()}
     ingresos = 0.0
-    por_linea, por_trabajador, por_tipo_cita, por_metodo_pago, por_estatus = {}, {}, {}, {}, {}
+    por_linea, por_trabajador, por_tipo_cita, por_metodo_pago, por_estatus, por_origen = {}, {}, {}, {}, {}, {}
     for s in servicios:
         cobro = float(s.cobro)
         ingresos += cobro
@@ -1719,6 +1719,9 @@ def estadisticas(
         metodo = s.metodo_pago or "Sin especificar"
         por_metodo_pago[metodo] = por_metodo_pago.get(metodo, 0) + 1
         por_estatus[s.estatus] = por_estatus.get(s.estatus, 0) + 1
+        if linea == "Taxes":
+            origen = (s.detalle or {}).get("origen") or "Sin especificar"
+            por_origen[origen] = por_origen.get(origen, 0) + 1
 
     servicio_ids = {s.id for s in servicios}
     comisiones = (
@@ -1738,6 +1741,7 @@ def estadisticas(
         "por_tipo_cita": por_tipo_cita,
         "por_metodo_pago": por_metodo_pago,
         "por_estatus": por_estatus,
+        "por_origen": por_origen,
     }
 
 
