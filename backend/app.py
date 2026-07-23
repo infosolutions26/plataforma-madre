@@ -1,6 +1,8 @@
+import csv
 import io
 import os
 import pathlib
+import unicodedata
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -1789,6 +1791,144 @@ def buscar_servicios(
             "comision_estado": comision.estado.value if comision else None,
         })
     return out
+
+
+# ---------- reportes: importar CSVs de TaxSlayer Pro Web (solo admin) ----------
+#
+# TaxSlayer Pro Web no tiene API/MCP/SFTP — el único método que da su equipo
+# técnico es exportar a mano un reporte CSV desde Web Reports. Confirmado
+# con archivos reales (ver columnas abajo). El nombre del preparador en
+# TaxSlayer NO coincide con nuestros trabajadores — por instrucción
+# explícita, no se usa para el match. Ninguno de los 4 reportes trae el año
+# fiscal como columna (va implícito en qué Tax Year tenías seleccionado al
+# exportar) — si una persona tiene más de un servicio de Taxes abierto acá,
+# el renglón se marca ambiguo y no se aplica solo.
+#
+# "no_transmitidos" es distinto a los otros tres: no actualiza ningún
+# estatus — solo lista los que están en TaxSlayer pero no tienen un
+# Servicio de Taxes ya registrado en la plataforma. No se crea el servicio
+# automáticamente, solo se reporta para que alguien lo revise.
+
+COLUMNAS_REPORTE_TAXSLAYER = {
+    "aceptados": {"ssn": "L4SSN", "apellido": "Last Name", "status": "Status"},
+    "rechazados": {"ssn": "L4SSN", "apellido": "Last Name", "status": "Status"},
+    "sin_estado": {"ssn": "L4SSN", "apellido": "Last Name", "status": "Status"},
+    "no_transmitidos": {"ssn": "L4SSN", "apellido": "Last Name", "status": "Status"},
+}
+
+STATUS_PROPUESTO_POR_REPORTE = {
+    "aceptados": "Transmitido Aceptado",
+    "rechazados": "Rechazado",
+    "sin_estado": "Falta Estado",
+}
+
+TIPOS_TAXES_TAXSLAYER = ["Taxes 1040", "ITIN + Taxes"]
+
+
+def _normalizar_texto_ts(s: str) -> str:
+    if not s:
+        return ""
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
+    return "".join(c for c in s.lower() if c.isalpha())
+
+
+def _buscar_columna_exacta(headers: list[str], nombre: str):
+    nombre_norm = nombre.strip().lower()
+    for h in headers:
+        if h.strip().lower() == nombre_norm:
+            return h
+    for h in headers:
+        if nombre_norm in h.strip().lower():
+            return h
+    return None
+
+
+@app.post("/api/_reportes_taxslayer_preview")
+async def reportes_taxslayer_preview(
+    tipo_reporte: str = Form(...), file: UploadFile = File(...),
+    db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    if tipo_reporte not in COLUMNAS_REPORTE_TAXSLAYER:
+        raise HTTPException(status_code=400, detail="tipo_reporte inválido.")
+    contenido = (await file.read()).decode("utf-8-sig", errors="replace")
+    reader = csv.DictReader(io.StringIO(contenido))
+    headers = reader.fieldnames or []
+    columnas = COLUMNAS_REPORTE_TAXSLAYER[tipo_reporte]
+    col_ssn = _buscar_columna_exacta(headers, columnas["ssn"])
+    col_apellido = _buscar_columna_exacta(headers, columnas["apellido"])
+    col_status = _buscar_columna_exacta(headers, columnas["status"])
+    if not col_ssn or not col_apellido:
+        return {
+            "ok": False, "headers": headers,
+            "error": f"No encontré las columnas L4SSN / Last Name en este archivo. Encabezados: {', '.join(headers)}",
+        }
+
+    personas = db.query(Persona).filter(Persona.ssn_last4.isnot(None)).all()
+    status_propuesto_fijo = STATUS_PROPUESTO_POR_REPORTE.get(tipo_reporte)
+
+    filas = []
+    for row in reader:
+        ssn_raw = (row.get(col_ssn) or "").strip()
+        ssn4 = ssn_raw[-4:] if ssn_raw else ""
+        apellido_raw = row.get(col_apellido) or ""
+        apellido_norm = _normalizar_texto_ts(apellido_raw)
+        status_raw = (row.get(col_status) or "").strip() if col_status else ""
+
+        candidatos = [
+            p for p in personas
+            if p.ssn_last4 == ssn4 and apellido_norm and apellido_norm in _normalizar_texto_ts(p.nombre)
+        ] if (ssn4 and apellido_norm) else []
+        ambiguo = len(candidatos) > 1
+        match = candidatos[0] if len(candidatos) == 1 else None
+
+        servicios_taxes = []
+        if match:
+            servicios_taxes = db.query(Servicio).filter(
+                Servicio.persona_id == match.id, Servicio.tipo.in_(TIPOS_TAXES_TAXSLAYER)
+            ).all()
+        servicio_match, estatus_actual = None, None
+        if len(servicios_taxes) == 1:
+            servicio_match = servicios_taxes[0]
+            estatus_actual = (servicio_match.detalle or {}).get("statusTaxes")
+        elif len(servicios_taxes) > 1:
+            ambiguo = True
+
+        fila = {
+            "ssn_last4": ssn4, "apellido_csv": apellido_raw, "status_taxslayer": status_raw,
+            "status_propuesto": status_propuesto_fijo,
+            "cliente_id": match.id if match else None, "cliente_nombre": match.nombre if match else None,
+            "tiene_servicio_taxes": len(servicios_taxes) > 0,
+            "servicio_id": servicio_match.id if servicio_match else None,
+            "estatus_actual": estatus_actual, "ambiguo": ambiguo,
+        }
+        if tipo_reporte == "no_transmitidos":
+            if not match or not fila["tiene_servicio_taxes"]:
+                filas.append(fila)
+        else:
+            filas.append(fila)
+    return {"ok": True, "tipo_reporte": tipo_reporte, "filas": filas}
+
+
+class TaxSlayerAplicarItem(BaseModel):
+    servicio_id: int
+    status_taxes: str
+
+
+class TaxSlayerAplicarIn(BaseModel):
+    items: list[TaxSlayerAplicarItem]
+
+
+@app.post("/api/_reportes_taxslayer_aplicar")
+def reportes_taxslayer_aplicar(body: TaxSlayerAplicarIn, db: Session = Depends(get_db), _=Depends(require_admin)):
+    actualizados = 0
+    for item in body.items:
+        s = db.get(Servicio, item.servicio_id)
+        if not s:
+            continue
+        s.detalle = {**(s.detalle or {}), "statusTaxes": item.status_taxes}
+        actualizados += 1
+    db.commit()
+    return {"actualizados": actualizados}
 
 
 # ---------- frontend (debe ir al final: es un catch-all de "/") ----------

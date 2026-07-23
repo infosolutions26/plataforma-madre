@@ -457,6 +457,7 @@
     <div class="navitem" data-view="nomina"><span class="ic">$</span> Nómina</div>
     <div class="navitem" data-view="stats"><span class="ic">▤</span> Estadísticas</div>
     <div class="navitem" data-view="config"><span class="ic">⚙</span> Configuración</div>
+    <div class="navitem" data-view="taxslayer"><span class="ic">⇪</span> Reportes</div>
     <div class="sidebar-foot">
       <div class="session-lbl">Sesión iniciada como</div>
       <div style="display:flex; align-items:center; gap:10px; padding:6px 10px;">
@@ -757,6 +758,79 @@
               <div class="field"><label>Hasta</label><input type="date" lang="en-US" id="tempHasta"></div>
             </div>
             <button class="btn small" id="btnAgregarTemporada" type="button" style="margin-top:8px;">+ Agregar temporada</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAXSLAYER (beta, solo admin) ================= -->
+      <section class="view" id="view-taxslayer">
+        <h1 class="page-title">Reportes</h1>
+        <p class="page-sub">Seguimiento y actualización de taxes contra los reportes de TaxSlayer Pro Web. El ingreso de servicios se sigue haciendo manual — esto solo revisa el estatus del tax contra lo que dice TaxSlayer y actualiza <strong>en toda la plataforma</strong> lo que confirmes. El nombre del preparador de TaxSlayer no se usa para emparejar (no coincide con nuestros trabajadores) — el emparejamiento es por SSN + apellido.</p>
+
+        <div class="panel">
+          <h2>Subir reportes de TaxSlayer</h2>
+          <div class="field-row">
+            <div class="field">
+              <label>Rechazados (Rejected Returns)</label>
+              <input type="file" id="tsFileRechazados" accept=".csv">
+              <button class="btn small" data-tipo="rechazados" type="button" style="margin-top:6px;">Subir y analizar</button>
+            </div>
+            <div class="field">
+              <label>Aceptados (Accepted Returns)</label>
+              <input type="file" id="tsFileAceptados" accept=".csv">
+              <button class="btn small" data-tipo="aceptados" type="button" style="margin-top:6px;">Subir y analizar</button>
+            </div>
+          </div>
+          <div class="field-row" style="margin-top:10px;">
+            <div class="field">
+              <label>Pendientes de estado (Transmitted with No State)</label>
+              <input type="file" id="tsFileSinEstado" accept=".csv">
+              <button class="btn small" data-tipo="sin_estado" type="button" style="margin-top:6px;">Subir y analizar</button>
+            </div>
+            <div class="field">
+              <label>No registrados (Not Transmitted)</label>
+              <input type="file" id="tsFileNoTransmitidos" accept=".csv">
+              <button class="btn small" data-tipo="no_transmitidos" type="button" style="margin-top:6px;">Subir y analizar</button>
+            </div>
+          </div>
+          <p class="hint" id="tsEstadoGlobal" style="min-height:16px; margin-top:8px;"></p>
+        </div>
+
+        <div class="subtabs" id="tsTabs">
+          <div class="subtab active" data-tipo="rechazados">Rechazados</div>
+          <div class="subtab" data-tipo="aceptados">Aceptados</div>
+          <div class="subtab" data-tipo="sin_estado">Pendientes de estado</div>
+          <div class="subtab" data-tipo="no_transmitidos">No registrados</div>
+        </div>
+
+        <div class="panel" id="tsPanelAccion">
+          <div class="h2row">
+            <h2 id="tsTituloTab">Rechazados</h2>
+            <div style="display:flex; gap:8px;">
+              <button class="btn small" id="btnTsMarcarTodo" type="button">Marcar coincidencias claras</button>
+              <button class="btn primary small" id="btnTsAplicar" type="button">Aplicar seleccionados</button>
+            </div>
+          </div>
+          <p class="hint" id="tsResumen" style="margin:-4px 0 10px;"></p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th></th><th>Cliente</th><th>SSN</th>
+                <th>Estatus actual</th><th>Estatus TaxSlayer</th><th>Estatus propuesto</th>
+              </tr></thead>
+              <tbody id="tsResultBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel" id="tsPanelLista" style="display:none;">
+          <h2>No registrados en la plataforma</h2>
+          <p class="hint" style="margin:-4px 0 10px;">Están en TaxSlayer pero no encontré un cliente y/o servicio de Taxes que coincida en la plataforma. No se crea nada automáticamente — es solo para que los revisen y los registren si hace falta.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Nombre en TaxSlayer</th><th>SSN</th><th>Estatus en TaxSlayer</th><th>¿Por qué no se ubicó?</th></tr></thead>
+              <tbody id="tsListaBody"></tbody>
+            </table>
           </div>
         </div>
       </section>
@@ -1086,7 +1160,7 @@
 (function(){
   "use strict";
 
-  var STATUS_TAXES_OPTIONS = ["Transmitido Aceptado","Enviado por Correo","En proceso / Incompleto","Rechazado","Pendiente de Correo","Revisión Pendiente","Listo para Transmitir","Enviado a Certificar"];
+  var STATUS_TAXES_OPTIONS = ["Transmitido Aceptado","Enviado por Correo","En proceso / Incompleto","Rechazado","Pendiente de Correo","Revisión Pendiente","Listo para Transmitir","Enviado a Certificar","Falta Estado"];
   var SERVICE_TYPES = {
     "Taxes 1040": { linea: "Taxes", extra: [
       {key:"ssn", label:"SSN / ITIN completo", type:"text"},
@@ -1168,7 +1242,7 @@
   function el(tag, cls, html){ var e=document.createElement(tag); if(cls) e.className=cls; if(html!==undefined) e.innerHTML=html; return e; }
   function statusClass(s){
     if (/aceptado|pagad|transmitido/i.test(s)) return "ok";
-    if (/pendiente|proceso|extension|enviado|revisi[oó]n|listo/i.test(s)) return "warn";
+    if (/pendiente|proceso|extension|enviado|revisi[oó]n|listo|falta/i.test(s)) return "warn";
     if (/rechazad|cancel|descartad/i.test(s)) return "crit";
     return "neutral";
   }
@@ -1345,6 +1419,7 @@
     document.querySelector('.navitem[data-view="seguimiento"]').classList.toggle("hidden", !puedeSeguimiento);
     document.querySelector('.navitem[data-view="trabajadores"]').classList.toggle("hidden", !puedeTrabajadores);
     document.querySelector('.navitem[data-view="config"]').classList.toggle("hidden", !puedeConfig);
+    document.querySelector('.navitem[data-view="taxslayer"]').classList.toggle("hidden", !isAdmin);
     document.getElementById("nominaLocked").style.display = puedeNomina ? "none" : "block";
     document.getElementById("nominaContent").style.display = puedeNomina ? "block" : "none";
     document.getElementById("statsLocked").style.display = puedeStats ? "none" : "block";
@@ -1462,6 +1537,143 @@
       document.getElementById("tempHasta").value = "";
       cargarTemporadas();
     }).catch(function(e){ alert("No se pudo crear: " + e.message); });
+  });
+
+  // ---------- reportes: TaxSlayer ----------
+  var TS_TIPOS = {
+    rechazados: {label: "Rechazados", fileId: "tsFileRechazados"},
+    aceptados: {label: "Aceptados", fileId: "tsFileAceptados"},
+    sin_estado: {label: "Pendientes de estado", fileId: "tsFileSinEstado"},
+    no_transmitidos: {label: "No registrados", fileId: "tsFileNoTransmitidos"},
+  };
+  state.reportesTaxslayer = {rechazados: null, aceptados: null, sin_estado: null, no_transmitidos: null};
+  state.tsTabActual = "rechazados";
+
+  document.querySelectorAll('#view-taxslayer button[data-tipo]').forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var tipo = btn.dataset.tipo;
+      var cfg = TS_TIPOS[tipo];
+      var file = document.getElementById(cfg.fileId).files[0];
+      if (!file) { alert("Elige primero el archivo CSV de " + cfg.label + "."); return; }
+      var estado = document.getElementById("tsEstadoGlobal");
+      estado.textContent = "Analizando " + cfg.label + "…";
+      var fd = new FormData();
+      fd.append("tipo_reporte", tipo);
+      fd.append("file", file);
+      uploadFile("/api/_reportes_taxslayer_preview", fd).then(function(r){
+        if (!r.ok) {
+          estado.textContent = r.error;
+          return;
+        }
+        state.reportesTaxslayer[tipo] = r.filas;
+        estado.textContent = cfg.label + ": " + r.filas.length + " renglones procesados.";
+        if (state.tsTabActual === tipo) renderTsTabActual();
+      }).catch(function(e){ estado.textContent = ""; alert("No se pudo analizar el archivo: " + e.message); });
+    });
+  });
+
+  document.querySelectorAll("#tsTabs .subtab").forEach(function(tab){
+    tab.addEventListener("click", function(){
+      document.querySelectorAll("#tsTabs .subtab").forEach(function(t){ t.classList.remove("active"); });
+      tab.classList.add("active");
+      state.tsTabActual = tab.dataset.tipo;
+      renderTsTabActual();
+    });
+  });
+
+  function tsMotivoNoUbicado(f){
+    if (!f.cliente_id) return "Sin cliente con ese SSN + apellido en la plataforma";
+    if (!f.tiene_servicio_taxes) return "El cliente existe, pero no tiene un servicio de Taxes registrado";
+    return "—";
+  }
+
+  function renderTsTabActual(){
+    var tipo = state.tsTabActual;
+    var cfg = TS_TIPOS[tipo];
+    var filas = state.reportesTaxslayer[tipo];
+
+    if (tipo === "no_transmitidos") {
+      document.getElementById("tsPanelAccion").style.display = "none";
+      document.getElementById("tsPanelLista").style.display = "block";
+      var tbodyL = document.getElementById("tsListaBody");
+      tbodyL.innerHTML = "";
+      if (!filas) { tbodyL.innerHTML = '<tr><td colspan="4"><p class="hint" style="padding:10px 0;">Sube el reporte "Federal Returns Not Transmitted" arriba para ver esto.</p></td></tr>'; return; }
+      if (!filas.length) { tbodyL.innerHTML = '<tr><td colspan="4"><p class="hint" style="padding:10px 0;">No encontré pendientes — todo lo que hay en ese reporte ya está registrado en la plataforma.</p></td></tr>'; return; }
+      filas.forEach(function(f){
+        var tr = el("tr");
+        [el("td",null,f.apellido_csv||"—"), el("td",null,"•••"+(f.ssn_last4||"—")), el("td",null,f.status_taxslayer||"—"), el("td",null,tsMotivoNoUbicado(f))]
+          .forEach(function(td){ tr.appendChild(td); });
+        tbodyL.appendChild(tr);
+      });
+      return;
+    }
+
+    document.getElementById("tsPanelLista").style.display = "none";
+    document.getElementById("tsPanelAccion").style.display = "block";
+    document.getElementById("tsTituloTab").textContent = cfg.label;
+    var tbody = document.getElementById("tsResultBody");
+    tbody.innerHTML = "";
+    if (!filas) {
+      tbody.innerHTML = '<tr><td colspan="6"><p class="hint" style="padding:10px 0;">Sube el reporte de ' + cfg.label + ' arriba para ver esto.</p></td></tr>';
+      document.getElementById("tsResumen").textContent = "";
+      return;
+    }
+    var conMatch = 0, sinCambio = 0;
+    filas.forEach(function(f, idx){
+      var tr = el("tr");
+      var cambia = f.servicio_id && f.estatus_actual !== f.status_propuesto;
+      if (f.servicio_id && !cambia) sinCambio++;
+      if (f.servicio_id) conMatch++;
+
+      var tdCheck = el("td");
+      var cb = el("input"); cb.type = "checkbox"; cb.dataset.idx = idx;
+      cb.disabled = !f.servicio_id || f.ambiguo;
+      cb.checked = !!(f.servicio_id && !f.ambiguo && cambia);
+      tdCheck.appendChild(cb);
+
+      var clienteTxt = f.cliente_nombre || ("Sin coincidencia (" + (f.apellido_csv||"—") + ")");
+      if (f.ambiguo) clienteTxt += " ⚠ ambiguo, revisar a mano";
+      else if (f.cliente_nombre && !f.servicio_id) clienteTxt += " (sin servicio de Taxes que coincida)";
+
+      var tdCliente = el("td", null, clienteTxt);
+      var tdSsn = el("td", null, "•••" + (f.ssn_last4||"—"));
+      var tdActual = el("td", null, f.estatus_actual || "—");
+      var tdTs = el("td", null, f.status_taxslayer || "—");
+      var tdPropuesto = el("td", null, f.status_propuesto || "—");
+
+      [tdCheck, tdCliente, tdSsn, tdActual, tdTs, tdPropuesto].forEach(function(td){ tr.appendChild(td); });
+      tbody.appendChild(tr);
+    });
+    document.getElementById("tsResumen").textContent =
+      filas.length + " filas · " + conMatch + " con cliente y servicio identificado (" + sinCambio + " ya coinciden, sin necesidad de cambio).";
+  }
+  renderTsTabActual();
+
+  document.getElementById("btnTsMarcarTodo").addEventListener("click", function(){
+    var filas = state.reportesTaxslayer[state.tsTabActual];
+    if (!filas) return;
+    document.querySelectorAll("#tsResultBody input[type=checkbox]").forEach(function(cb){
+      if (!cb.disabled) {
+        var f = filas[cb.dataset.idx];
+        cb.checked = !!(f.servicio_id && f.estatus_actual !== f.status_propuesto);
+      }
+    });
+  });
+  document.getElementById("btnTsAplicar").addEventListener("click", function(){
+    var filas = state.reportesTaxslayer[state.tsTabActual];
+    var items = [];
+    document.querySelectorAll("#tsResultBody input[type=checkbox]:checked").forEach(function(cb){
+      var f = filas[cb.dataset.idx];
+      items.push({servicio_id: f.servicio_id, status_taxes: f.status_propuesto});
+    });
+    if (!items.length) { alert("No hay filas marcadas para aplicar."); return; }
+    if (!confirm("¿Aplicar el nuevo estatus del tax a " + items.length + " servicio(s)? Esto se actualiza en toda la plataforma.")) return;
+    api("/api/_reportes_taxslayer_aplicar", {method:"POST", body:{items: items}}).then(function(r){
+      alert(r.actualizados + " servicio(s) actualizados.");
+      if (state.currentProfile) renderProfileServices();
+      renderServiciosTable();
+      if (state.segCatalogosCargados) buscarSeguimiento();
+    }).catch(function(e){ alert("No se pudo aplicar: " + e.message); });
   });
 
   // ---------- client list ----------
