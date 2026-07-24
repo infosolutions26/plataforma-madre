@@ -35,6 +35,7 @@ from models import (
     PagoNomina,
     PeriodoCustom,
     Persona,
+    ReporteMarketingFila,
     RolUsuario,
     Servicio,
     Trabajador,
@@ -1195,7 +1196,7 @@ def editar_estatus_rapido(
 
 # ---------- trabajadores (admin) ----------
 
-PERMISOS_VALIDOS = ["nomina", "estadisticas", "trabajadores", "seguimiento", "configuracion"]
+PERMISOS_VALIDOS = ["nomina", "estadisticas", "trabajadores", "seguimiento", "configuracion", "reportes"]
 
 
 class TrabajadorIn(BaseModel):
@@ -1825,40 +1826,29 @@ def estadisticas_comparativo(
 
 
 @app.get("/api/estadisticas/demografico")
-def estadisticas_demografico(
-    fecha_inicio: Optional[date] = None, fecha_fin: Optional[date] = None,
-    db: Session = Depends(get_db), _=Depends(require_permiso("estadisticas")),
-):
-    """No se usa en el portal del cliente — solo para saber a cuántos estados
-    y ciudades llegamos. La dirección viene del Marketing Report de
-    TaxSlayer, no se captura a mano."""
-    q = db.query(Servicio.persona_id).filter(Servicio.persona_id.isnot(None))
-    if fecha_inicio:
-        q = q.filter(Servicio.fecha >= fecha_inicio)
-    if fecha_fin:
-        q = q.filter(Servicio.fecha <= fecha_fin)
-    persona_ids = {row[0] for row in q.distinct().all()}
-    personas = db.query(Persona).filter(Persona.id.in_(persona_ids)).all() if persona_ids else []
-
+def estadisticas_demografico(db: Session = Depends(get_db), _=Depends(require_permiso("estadisticas"))):
+    """No se usa en el portal del cliente ni se empareja contra Persona —
+    es directo de lo último que se subió del Marketing Report de TaxSlayer,
+    para saber a cuántos estados y ciudades llegamos."""
+    filas = db.query(ReporteMarketingFila).all()
     por_estado, por_ciudad = {}, {}
-    con_direccion = 0
-    for p in personas:
-        if p.estado:
-            con_direccion += 1
-            por_estado[p.estado] = por_estado.get(p.estado, 0) + 1
-            ciudad_key = (p.ciudad or "Ciudad sin especificar") + ", " + p.estado
+    for f in filas:
+        if f.estado:
+            por_estado[f.estado] = por_estado.get(f.estado, 0) + 1
+            ciudad_key = (f.ciudad or "Ciudad sin especificar") + ", " + f.estado
             por_ciudad[ciudad_key] = por_ciudad.get(ciudad_key, 0) + 1
 
     por_estado = dict(sorted(por_estado.items(), key=lambda kv: -kv[1]))
     por_ciudad = dict(sorted(por_ciudad.items(), key=lambda kv: -kv[1]))
+    ultimo_import = max((f.importado_en for f in filas), default=None)
 
     return {
-        "clientes_en_rango": len(personas),
-        "clientes_con_direccion": con_direccion,
+        "filas_importadas": len(filas),
         "estados_alcanzados": len(por_estado),
         "ciudades_alcanzadas": len(por_ciudad),
         "por_estado": por_estado,
         "por_ciudad": por_ciudad,
+        "ultimo_import": ultimo_import.isoformat() if ultimo_import else None,
     }
 
 
@@ -1967,7 +1957,7 @@ def _buscar_columna_exacta(headers: list[str], nombre: str):
 @app.post("/api/_reportes_taxslayer_preview")
 async def reportes_taxslayer_preview(
     tipo_reporte: str = Form(...), file: UploadFile = File(...),
-    db: Session = Depends(get_db), _=Depends(require_admin),
+    db: Session = Depends(get_db), _=Depends(require_permiso("reportes")),
 ):
     if tipo_reporte not in COLUMNAS_REPORTE_TAXSLAYER:
         raise HTTPException(status_code=400, detail="tipo_reporte inválido.")
@@ -2040,7 +2030,7 @@ class TaxSlayerAplicarIn(BaseModel):
 
 
 @app.post("/api/_reportes_taxslayer_aplicar")
-def reportes_taxslayer_aplicar(body: TaxSlayerAplicarIn, db: Session = Depends(get_db), _=Depends(require_admin)):
+def reportes_taxslayer_aplicar(body: TaxSlayerAplicarIn, db: Session = Depends(get_db), _=Depends(require_permiso("reportes"))):
     actualizados = 0
     for item in body.items:
         s = db.get(Servicio, item.servicio_id)
@@ -2054,88 +2044,46 @@ def reportes_taxslayer_aplicar(body: TaxSlayerAplicarIn, db: Session = Depends(g
 
 # ---------- reportes: importar Marketing Report de TaxSlayer (dashboard demográfico) ----------
 #
-# Trae dirección/ciudad/estado/zip reales por cliente — se usa solo para
-# saber a cuántos estados y ciudades llegamos (dashboard demográfico), no se
-# muestra en el portal del cliente. El nombre viene completo (no solo
-# apellido), así que el match es por conjunto de palabras del nombre
-# (sin importar el orden) + SSN, no por substring simple.
+# Trae dirección/ciudad/estado/zip del Marketing Report de TaxSlayer — se usa
+# solo para el dashboard demográfico (a cuántos estados/ciudades llegamos),
+# no se muestra en el portal del cliente y no se empareja contra Persona
+# (por instrucción explícita: "se hace el dashboard con todo lo que haya en
+# el reporte y ya"). Cada import reemplaza el contenido anterior — el
+# reporte es una foto completa de TaxSlayer, no incremental.
 
-def _palabras_norm_ts(s: str) -> set:
-    return {_normalizar_texto_ts(w) for w in (s or "").split() if w.strip()}
-
-
-@app.post("/api/_reportes_marketing_preview")
-async def reportes_marketing_preview(file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(require_admin)):
+@app.post("/api/_reportes_marketing_importar")
+async def reportes_marketing_importar(file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(require_permiso("estadisticas"))):
     contenido = (await file.read()).decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(contenido))
     headers = reader.fieldnames or []
     col_ssn = _buscar_columna_exacta(headers, "L4SSN")
     col_nombre = _buscar_columna_exacta(headers, "Taxpayer Name")
     col_dir = _buscar_columna_exacta(headers, "Address")
-    col_apt = _buscar_columna_exacta(headers, "Apartment")
     col_ciudad = _buscar_columna_exacta(headers, "City")
     col_estado = _buscar_columna_exacta(headers, "State")
     col_zip = _buscar_columna_exacta(headers, "Zip")
-    if not col_ssn or not col_nombre:
+    if not col_estado or not col_ciudad:
         return {
             "ok": False, "headers": headers,
-            "error": f"No encontré las columnas L4SSN / Taxpayer Name en este archivo. Encabezados: {', '.join(headers)}",
+            "error": f"No encontré las columnas City / State en este archivo. Encabezados: {', '.join(headers)}",
         }
 
-    personas = db.query(Persona).filter(Persona.ssn_last4.isnot(None)).all()
-    filas = []
+    nuevas = []
     for row in reader:
-        ssn_raw = (row.get(col_ssn) or "").strip()
-        ssn4 = ssn_raw[-4:] if ssn_raw else ""
-        nombre_raw = row.get(col_nombre) or ""
-        palabras_csv = _palabras_norm_ts(nombre_raw)
+        ssn_raw = (row.get(col_ssn) or "").strip() if col_ssn else ""
+        nuevas.append(ReporteMarketingFila(
+            nombre=(row.get(col_nombre) or "").strip() if col_nombre else None,
+            ssn_last4=ssn_raw[-4:] if ssn_raw else None,
+            direccion=(row.get(col_dir) or "").strip() if col_dir else None,
+            ciudad=(row.get(col_ciudad) or "").strip() or None,
+            estado=(row.get(col_estado) or "").strip() or None,
+            zip=(row.get(col_zip) or "").strip() if col_zip else None,
+        ))
 
-        candidatos = [
-            p for p in personas
-            if p.ssn_last4 == ssn4 and palabras_csv and palabras_csv.issubset(_palabras_norm_ts(p.nombre))
-        ] if ssn4 else []
-        ambiguo = len(candidatos) > 1
-        match = candidatos[0] if len(candidatos) == 1 else None
-
-        filas.append({
-            "ssn_last4": ssn4, "nombre_csv": nombre_raw,
-            "direccion": (row.get(col_dir) or "").strip() if col_dir else "",
-            "apartamento": (row.get(col_apt) or "").strip() if col_apt else "",
-            "ciudad": (row.get(col_ciudad) or "").strip() if col_ciudad else "",
-            "estado": (row.get(col_estado) or "").strip() if col_estado else "",
-            "zip": (row.get(col_zip) or "").strip() if col_zip else "",
-            "cliente_id": match.id if match else None, "cliente_nombre": match.nombre if match else None,
-            "ya_tiene_direccion": bool(match and match.estado) if match else False,
-            "ambiguo": ambiguo,
-        })
-    return {"ok": True, "filas": filas}
-
-
-class MarketingAplicarItem(BaseModel):
-    persona_id: int
-    direccion: Optional[str] = None
-    apartamento: Optional[str] = None
-    ciudad: Optional[str] = None
-    estado: Optional[str] = None
-    zip: Optional[str] = None
-
-
-class MarketingAplicarIn(BaseModel):
-    items: list[MarketingAplicarItem]
-
-
-@app.post("/api/_reportes_marketing_aplicar")
-def reportes_marketing_aplicar(body: MarketingAplicarIn, db: Session = Depends(get_db), _=Depends(require_admin)):
-    actualizados = 0
-    for item in body.items:
-        p = db.get(Persona, item.persona_id)
-        if not p:
-            continue
-        p.direccion, p.apartamento = item.direccion, item.apartamento
-        p.ciudad, p.estado, p.zip = item.ciudad, item.estado, item.zip
-        actualizados += 1
+    db.query(ReporteMarketingFila).delete()
+    db.add_all(nuevas)
     db.commit()
-    return {"actualizados": actualizados}
+    return {"ok": True, "filas_importadas": len(nuevas)}
 
 
 # ---------- frontend (debe ir al final: es un catch-all de "/") ----------

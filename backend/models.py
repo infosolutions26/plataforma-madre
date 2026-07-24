@@ -247,6 +247,24 @@ class Configuracion(Base):
     valor: Mapped[str] = mapped_column(String(200))
 
 
+class ReporteMarketingFila(Base):
+    """Filas del Marketing Report de TaxSlayer, tal cual — para el dashboard
+    demográfico (a cuántos estados/ciudades llegamos). No se empareja contra
+    Persona; cada import reemplaza el contenido anterior (el reporte es una
+    foto completa, no incremental)."""
+
+    __tablename__ = "reporte_marketing_fila"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre: Mapped[Optional[str]] = mapped_column(String(200))
+    ssn_last4: Mapped[Optional[str]] = mapped_column(String(4))
+    direccion: Mapped[Optional[str]] = mapped_column(String(200))
+    ciudad: Mapped[Optional[str]] = mapped_column(String(100))
+    estado: Mapped[Optional[str]] = mapped_column(String(40))
+    zip: Mapped[Optional[str]] = mapped_column(String(12))
+    importado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class NotaCliente(Base):
     """Bloques de nota independientes en el perfil de un cliente — un renglón
     por actualización, no un solo campo que se sobrescribe."""
