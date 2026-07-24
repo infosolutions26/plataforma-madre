@@ -758,7 +758,11 @@ def debug_drive_folder(tipo: str, cliente_id: int, db: Session = Depends(get_db)
         return {"error": "Este cliente no tiene drive_folder_id guardado."}
     info = drive.info_carpeta(cliente.drive_folder_id)
     archivos = drive.listar_archivos(cliente.drive_folder_id)
-    return {"drive_folder_id": cliente.drive_folder_id, "info": info, "archivos_via_api": archivos}
+    duplicadas = drive.buscar_carpetas_por_nombre(cliente.nombre.split()[0])
+    return {
+        "drive_folder_id": cliente.drive_folder_id, "info": info, "archivos_via_api": archivos,
+        "posibles_duplicadas": [f for f in duplicadas if f["id"] != cliente.drive_folder_id],
+    }
 
 
 @app.get("/api/clientes/{tipo}/{cliente_id}/documentos")

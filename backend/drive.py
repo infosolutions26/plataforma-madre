@@ -195,6 +195,17 @@ def eliminar_archivo(file_id: str):
     svc.files().delete(fileId=file_id).execute()
 
 
+def buscar_carpetas_por_nombre(nombre_parcial: str) -> list:
+    """Busca CUALQUIER carpeta visible para la cuenta impersonada cuyo
+    nombre contenga el texto dado — para detectar carpetas duplicadas
+    (ej. del árbol viejo de "Preparadores") con el mismo nombre de cliente."""
+    svc = _get_service()
+    nombre_esc = nombre_parcial.replace("'", "\\'")
+    q = f"name contains '{nombre_esc}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    res = svc.files().list(q=q, fields="files(id,name,parents,owners,shared)", pageSize=20).execute()
+    return res.get("files", [])
+
+
 def info_carpeta(folder_id: str) -> dict:
     """Diagnóstico: dueño, si está compartida, y con quién — para investigar
     por qué una carpeta se ve vacía al abrirla directo en Drive aunque la
