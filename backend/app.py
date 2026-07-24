@@ -748,6 +748,18 @@ def _get_cliente(tipo: str, cliente_id: int, db: Session):
     return cliente
 
 
+@app.get("/api/_debug_drive_folder/{tipo}/{cliente_id}")
+def debug_drive_folder(tipo: str, cliente_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Diagnóstico temporal: por qué una carpeta se ve vacía al abrirla
+    directo en Drive aunque el portal sí muestra archivos."""
+    cliente = _get_cliente(tipo, cliente_id, db)
+    if not cliente.drive_folder_id:
+        return {"error": "Este cliente no tiene drive_folder_id guardado."}
+    info = drive.info_carpeta(cliente.drive_folder_id)
+    archivos = drive.listar_archivos(cliente.drive_folder_id)
+    return {"drive_folder_id": cliente.drive_folder_id, "info": info, "archivos_via_api": archivos}
+
+
 @app.get("/api/clientes/{tipo}/{cliente_id}/documentos")
 def listar_documentos_drive(
     tipo: str, cliente_id: int, folder_id: Optional[str] = None,

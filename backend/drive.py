@@ -193,3 +193,18 @@ def obtener_contenido(file_id: str):
 def eliminar_archivo(file_id: str):
     svc = _get_service()
     svc.files().delete(fileId=file_id).execute()
+
+
+def info_carpeta(folder_id: str) -> dict:
+    """Diagnóstico: dueño, si está compartida, y con quién — para investigar
+    por qué una carpeta se ve vacía al abrirla directo en Drive aunque la
+    API sí liste archivos dentro (típicamente un tema de permisos, no de
+    que el archivo no exista)."""
+    svc = _get_service()
+    meta = svc.files().get(
+        fileId=folder_id, fields="id,name,owners,parents,webViewLink,shared,trashed", supportsAllDrives=True
+    ).execute()
+    permisos = svc.permissions().list(
+        fileId=folder_id, fields="permissions(id,type,role,emailAddress,displayName)", supportsAllDrives=True
+    ).execute()
+    return {"meta": meta, "permisos": permisos.get("permissions", [])}
