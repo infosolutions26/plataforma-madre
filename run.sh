@@ -4,7 +4,9 @@ set -e
 cd "$(dirname "$0")"
 
 if [ -f .env ]; then
-  export $(grep -v '^#' .env | xargs)
+  set -a
+  source .env
+  set +a
 fi
 
 if [ -z "$SSN_ENCRYPTION_KEY" ]; then
