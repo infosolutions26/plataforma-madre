@@ -6,14 +6,23 @@ CRM/nómina más allá de la FK a `empresa`/`persona` (la entidad_contable ya
 existente).
 
 Dos capas de datos:
-- `ContabilidadMensualHistorica`: solo totales, para importar el histórico de
-  ~110 compañías desde Drive (Sheets de vaciado viejos). No guarda gasto por
-  gasto — el usuario confirmó que no hace falta para el histórico.
-- Las tablas de la plataforma NUEVA (corte_bancario, gasto, comercio_grupo,
-  etc., con detalle transacción por transacción) vienen en una fase posterior;
-  esto es intencionalmente solo lo necesario para el import histórico.
+- `ContabilidadMensualHistorica`: solo totales por mes. Es el archivo — de ahí
+  llegó el histórico de ~110 compañías importado de Drive (Sheets de vaciado
+  viejos), y ahí mismo se consolidan los totales mensuales que vaya
+  produciendo el sistema nuevo (tanto express como personalizada), para que
+  la tabla de "histórico de años anteriores" del entregable siempre consulte
+  un solo lugar sin importar cómo se generaron los datos.
+- El pipeline NUEVO de 3 fases (cargar PDFs -> clasificar -> armar entregable):
+  `CuentaBancaria`, `CorteEstadoCuenta`, `Comercio`, `Gasto`, `Ingreso`. Regla
+  central confirmada por el usuario: el mes de cada gasto/ingreso SIEMPRE sale
+  de su propia fecha, nunca del periodo del corte — así un estado de cuenta
+  que va del 28 feb al 30 mar se reparte solo entre esos dos meses naturales
+  sin que nadie tenga que cortarlo a mano. `CorteEstadoCuenta` solo guarda el
+  periodo/saldos que declara el banco para VALIDAR que la extracción del PDF
+  sumó bien, no para agrupar el reporte.
 """
 
+import enum
 from datetime import date, datetime
 from typing import Optional
 
@@ -31,6 +40,11 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
+
+
+class TipoContabilidad(str, enum.Enum):
+    express = "express"          # solo totales, sin clasificar gasto por gasto
+    personalizada = "personalizada"  # se clasifica cada gasto por comercio y categoría
 
 
 class CategoriaGasto(Base):
@@ -108,3 +122,124 @@ class ContabilidadMensualHistorica(Base):
     importado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     empresa: Mapped[Optional["Empresa"]] = relationship()  # noqa: F821 — Empresa vive en models.py, misma metadata de Base
+
+
+# ==================== pipeline nuevo: cargar -> clasificar -> armar ====================
+
+class CuentaBancaria(Base):
+    """Una cuenta de banco (débito o tarjeta de crédito) de un cliente. Un
+    cliente puede tener varias, cada una con sus propias fechas de corte —
+    por eso el reparto por mes natural se hace a nivel de Gasto/Ingreso, no
+    de cuenta."""
+
+    __tablename__ = "cuenta_bancaria"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[Optional[int]] = mapped_column(ForeignKey("empresa.id"))
+    persona_id: Mapped[Optional[int]] = mapped_column(ForeignKey("persona.id"))
+    banco: Mapped[str] = mapped_column(String(80))
+    ultimos4: Mapped[Optional[str]] = mapped_column(String(4))
+    tipo: Mapped[str] = mapped_column(String(20))  # debito | credito
+    apodo: Mapped[Optional[str]] = mapped_column(String(80))  # ej. "Chase #1801", para mostrar en tablas
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    empresa: Mapped[Optional["Empresa"]] = relationship()  # noqa: F821
+    persona: Mapped[Optional["Persona"]] = relationship()  # noqa: F821
+
+
+class CorteEstadoCuenta(Base):
+    """Un PDF de estado de cuenta subido = un corte. Guarda el periodo y los
+    saldos/totales que DECLARA el banco, para validar que lo que se extrajo
+    del PDF cuadra (`validado`) antes de dar la clasificación por buena — no
+    se usa para agrupar el entregable por mes, eso sale de la fecha de cada
+    gasto/ingreso. `tipo_contabilidad` se elige una vez por la persona que
+    sube el lote de PDFs (todos deben ser del mismo cliente, confirmado)."""
+
+    __tablename__ = "corte_estado_cuenta"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cuenta_id: Mapped[int] = mapped_column(ForeignKey("cuenta_bancaria.id"))
+    fecha_inicio: Mapped[date] = mapped_column(Date)
+    fecha_fin: Mapped[date] = mapped_column(Date)
+    saldo_inicial: Mapped[Optional[float]] = mapped_column(Numeric(12, 2))
+    saldo_final: Mapped[Optional[float]] = mapped_column(Numeric(12, 2))
+    ingreso_total_declarado: Mapped[Optional[float]] = mapped_column(Numeric(12, 2))  # lo que dice el banco
+    gasto_total_declarado: Mapped[Optional[float]] = mapped_column(Numeric(12, 2))
+    tipo_contabilidad: Mapped[str] = mapped_column(String(20), default=TipoContabilidad.personalizada.value)
+    fuente_archivo: Mapped[Optional[str]] = mapped_column(String(300))  # nombre del PDF subido
+    fuente_file_id: Mapped[Optional[str]] = mapped_column(String(120))  # Drive, si se archiva ahí
+    validado: Mapped[bool] = mapped_column(Boolean, default=False)  # true cuando la suma extraída cuadra contra lo declarado
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    cuenta: Mapped[CuentaBancaria] = relationship()
+
+
+class Comercio(Base):
+    """Diccionario global que aprende con el uso: normaliza el texto crudo
+    del OCR ('SQ *STARBUCKS #4021 CHICAGO IL') a un nombre editable
+    ('Starbucks') y sugiere categoría según lo clasificado antes — entre más
+    se usa el sistema (de cualquier cliente), mejor sugiere. `veces_usado`
+    sirve tanto de métrica de confianza como para ordenar sugerencias."""
+
+    __tablename__ = "comercio"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre_normalizado: Mapped[str] = mapped_column(String(200), unique=True)  # clave de match (mayúsculas, sin ruido)
+    nombre_editado: Mapped[str] = mapped_column(String(200))  # lo que se muestra y se imprime en el entregable
+    categoria_sugerida_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categoria_gasto.id"))
+    veces_usado: Mapped[int] = mapped_column(Integer, default=0)
+    actualizado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    categoria_sugerida: Mapped[Optional[CategoriaGasto]] = relationship()
+
+
+class Gasto(Base):
+    """Un renglón de gasto individual, ya vinculado a cuenta+fecha+comercio+
+    categoría. `clasificado=False` = pendiente de revisar en la pantalla de
+    clasificación (así llega recién extraído por OCR); en contabilidad
+    express no se crean Gasto — solo se suben totales directo a
+    ContabilidadMensualHistorica."""
+
+    __tablename__ = "gasto"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[Optional[int]] = mapped_column(ForeignKey("empresa.id"))
+    persona_id: Mapped[Optional[int]] = mapped_column(ForeignKey("persona.id"))
+    cuenta_id: Mapped[int] = mapped_column(ForeignKey("cuenta_bancaria.id"))
+    corte_id: Mapped[int] = mapped_column(ForeignKey("corte_estado_cuenta.id"))
+    fecha: Mapped[date] = mapped_column(Date)  # define el mes del entregable — nunca el periodo del corte
+    monto: Mapped[float] = mapped_column(Numeric(12, 2))
+    comercio_raw: Mapped[str] = mapped_column(String(300))  # texto tal cual vino del OCR, para re-normalizar si hace falta
+    comercio_id: Mapped[Optional[int]] = mapped_column(ForeignKey("comercio.id"))
+    categoria_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categoria_gasto.id"))
+    clasificado: Mapped[bool] = mapped_column(Boolean, default=False)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    empresa: Mapped[Optional["Empresa"]] = relationship()  # noqa: F821
+    persona: Mapped[Optional["Persona"]] = relationship()  # noqa: F821
+    cuenta: Mapped[CuentaBancaria] = relationship()
+    corte: Mapped[CorteEstadoCuenta] = relationship()
+    comercio: Mapped[Optional[Comercio]] = relationship()
+    categoria: Mapped[Optional[CategoriaGasto]] = relationship()
+
+
+class Ingreso(Base):
+    """Un depósito individual — solo fecha y monto (confirmado: de ingresos
+    nada más hace falta el total, el foco está en los gastos). Se guarda por
+    fecha, no como un total por corte, por la misma regla de mes natural que
+    Gasto: un corte que cruza fin de mes debe repartir sus depósitos entre
+    los dos meses que corresponde."""
+
+    __tablename__ = "ingreso"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[Optional[int]] = mapped_column(ForeignKey("empresa.id"))
+    persona_id: Mapped[Optional[int]] = mapped_column(ForeignKey("persona.id"))
+    cuenta_id: Mapped[int] = mapped_column(ForeignKey("cuenta_bancaria.id"))
+    corte_id: Mapped[int] = mapped_column(ForeignKey("corte_estado_cuenta.id"))
+    fecha: Mapped[date] = mapped_column(Date)
+    monto: Mapped[float] = mapped_column(Numeric(12, 2))
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    cuenta: Mapped[CuentaBancaria] = relationship()
+    corte: Mapped[CorteEstadoCuenta] = relationship()
