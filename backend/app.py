@@ -33,6 +33,7 @@ from contabilidad import (
     TipoContabilidad,
 )
 from comercio_parser import normaliza_comercio
+import ocr_estados
 from database import Base, engine, encrypt_ssn, decrypt_ssn, get_db, hash_password
 from models import (
     Archivo,
@@ -1805,6 +1806,59 @@ def editar_comercio(
         m.categoria_sugerida_id = body.categoria_id
     db.commit()
     return {"ok": True}
+
+
+# ---------- contabilidad: subir estados de cuenta (fase 1 del pipeline) ----------
+
+@app.post("/api/contabilidad/cortes/subir")
+async def subir_estados_cuenta(
+    empresa_id: Optional[int] = Form(None),
+    persona_id: Optional[int] = Form(None),
+    tipo_contabilidad: str = Form(...),  # express | personalizada
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    _=Depends(require_permiso("contabilidad")),
+):
+    """Sube uno o varios PDFs de estados de cuenta del MISMO cliente. Cada PDF se
+    lee con Gemini, se detecta banco/cuenta/tipo (débito o crédito) y se vuelca al
+    esquema: un CorteEstadoCuenta con sus Gasto/Ingreso, cada uno con su fecha real.
+    A cada gasto se le pre-sugiere categoría del diccionario aprendido. En
+    personalizada quedan pendientes de clasificar; en express solo cuentan totales."""
+    if not empresa_id and not persona_id:
+        raise HTTPException(status_code=400, detail="Falta el cliente (empresa_id o persona_id).")
+    if tipo_contabilidad not in ("express", "personalizada"):
+        raise HTTPException(status_code=400, detail="tipo_contabilidad debe ser 'express' o 'personalizada'.")
+    if not ocr_estados.gemini_disponible():
+        raise HTTPException(status_code=503, detail="Falta GEMINI_API_KEY en el servidor — no se puede leer PDFs todavía.")
+
+    resultados = []
+    for f in files:
+        contenido = await f.read()
+        try:
+            data = await ocr_estados.extraer_estado(f.filename, contenido)
+        except Exception as e:  # noqa: BLE001
+            resultados.append({"archivo": f.filename, "error": f"No se pudo leer: {e}"})
+            continue
+        cuenta = ocr_estados.resolver_cuenta(db, data, empresa_id, persona_id)
+        corte = ocr_estados.ingerir_estado(db, data, cuenta, tipo_contabilidad, f.filename)
+        db.flush()
+        n_gastos = db.query(Gasto).filter(Gasto.corte_id == corte.id).count()
+        n_ingresos = db.query(Ingreso).filter(Ingreso.corte_id == corte.id).count()
+        resultados.append({
+            "archivo": f.filename,
+            "corte_id": corte.id,
+            "cuenta": cuenta.apodo,
+            "banco": cuenta.banco,
+            "tipo_cuenta": cuenta.tipo,
+            "periodo": f"{corte.fecha_inicio.isoformat()} a {corte.fecha_fin.isoformat()}",
+            "n_gastos": n_gastos,
+            "n_ingresos": n_ingresos,
+            "validado": corte.validado,
+            "gasto_declarado": float(corte.gasto_total_declarado or 0),
+            "ingreso_declarado": float(corte.ingreso_total_declarado or 0),
+        })
+    db.commit()
+    return {"resultados": resultados}
 
 
 @app.post("/api/_reset_saldos_nomina")
