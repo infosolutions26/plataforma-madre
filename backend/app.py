@@ -1969,6 +1969,136 @@ def clasificar_grupo(body: ClasificarIn, db: Session = Depends(get_db), _=Depend
     return {"ok": True, "clasificados": len(gastos), "comercio_id": com.id}
 
 
+# ---------- contabilidad: armar entregable (fase 3) ----------
+
+# El encargado excluye estas 3 de las tablas de "top comercios" (confirmado):
+# Contract Labor va en su propia tabla (Pago a colaboradores); Personal y Savings
+# no son gasto de negocio.
+_EXCLUIR_TOP = {"CONTRACT LABOR", "PERSONAL", "SAVINGS"}
+_MESES_ES = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+             "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+
+
+@app.get("/api/contabilidad/entregable/{tipo}/{cliente_id}")
+def armar_entregable(
+    tipo: str, cliente_id: int, db: Session = Depends(get_db), _=Depends(require_permiso("contabilidad")),
+):
+    """Arma TODAS las tablas del entregable a partir de lo ya clasificado — listas
+    para copiar a la plantilla de Google Docs (no genera el docx). El periodo son
+    los meses que tienen datos; cada gasto/ingreso cae en su mes por su fecha real."""
+    if tipo not in ("empresa", "persona"):
+        raise HTTPException(status_code=400)
+    modelo = Empresa if tipo == "empresa" else Persona
+    cliente = db.get(modelo, cliente_id)
+    if not cliente:
+        raise HTTPException(status_code=404)
+
+    cats = {c.id: c for c in db.query(CategoriaGasto).all()}
+    gcol = Gasto.empresa_id if tipo == "empresa" else Gasto.persona_id
+    icol = Ingreso.empresa_id if tipo == "empresa" else Ingreso.persona_id
+    gastos = db.query(Gasto).filter(gcol == cliente_id, Gasto.clasificado == True).all()  # noqa: E712
+    ingresos = db.query(Ingreso).filter(icol == cliente_id).all()
+
+    if not gastos and not ingresos:
+        return {"cliente": {"tipo": tipo, "id": cliente_id, "nombre": cliente.nombre}, "vacio": True}
+
+    # nombre legible de comercio por gasto
+    coms = {c.id: c.nombre_editado for c in db.query(Comercio).all()}
+    def nombre_com(g):
+        return coms.get(g.comercio_id) or (g.comercio_raw or "—")
+    def cat_nombre(g):
+        c = cats.get(g.categoria_id)
+        return c.nombre if c else "SIN CATEGORÍA"
+
+    # --- tabla mensual (por mes natural, según fecha) ---
+    meses = {}  # (anio,mes) -> {dep, gasto_ded, gasto_tot}
+    for i in ingresos:
+        k = (i.fecha.year, i.fecha.month)
+        meses.setdefault(k, {"dep": 0.0, "gasto_ded": 0.0, "gasto_tot": 0.0})["dep"] += float(i.monto or 0)
+    for g in gastos:
+        k = (g.fecha.year, g.fecha.month)
+        e = meses.setdefault(k, {"dep": 0.0, "gasto_ded": 0.0, "gasto_tot": 0.0})
+        m = float(g.monto or 0)
+        e["gasto_tot"] += m
+        c = cats.get(g.categoria_id)
+        if c and c.es_deducible:
+            e["gasto_ded"] += m
+    tabla_mensual = [
+        {"anio": a, "mes": mm, "mes_nombre": _MESES_ES[mm],
+         "depositos": round(v["dep"], 2), "gastos_deducibles": round(v["gasto_ded"], 2),
+         "gastos_totales": round(v["gasto_tot"], 2)}
+        for (a, mm), v in sorted(meses.items())
+    ]
+
+    # --- gastos por categoría (total + % del total de gastos) ---
+    por_cat = {}
+    for g in gastos:
+        por_cat[cat_nombre(g)] = por_cat.get(cat_nombre(g), 0.0) + float(g.monto or 0)
+    total_gastos = sum(por_cat.values()) or 1.0
+    orden_cat = {c.nombre: c.orden for c in cats.values()}
+    gastos_por_categoria = [
+        {"categoria": n, "total": round(t, 2), "porcentaje": round(t / total_gastos * 100, 1)}
+        for n, t in sorted(por_cat.items(), key=lambda kv: orden_cat.get(kv[0], 999))
+    ]
+
+    # --- Pago a colaboradores (Contract Labor agrupado por comercio) ---
+    colab = {}
+    for g in gastos:
+        if cat_nombre(g) == "CONTRACT LABOR":
+            colab[nombre_com(g)] = colab.get(nombre_com(g), 0.0) + float(g.monto or 0)
+    pago_colaboradores = [
+        {"nombre": n, "total": round(t, 2)} for n, t in sorted(colab.items(), key=lambda kv: -kv[1])
+    ]
+
+    # --- top 10 comercios por frecuencia y por monto (excluyendo CL/Personal/Savings) ---
+    agg = {}  # comercio -> {n, total}
+    for g in gastos:
+        if cat_nombre(g) in _EXCLUIR_TOP:
+            continue
+        e = agg.setdefault(nombre_com(g), {"n": 0, "total": 0.0})
+        e["n"] += 1
+        e["total"] += float(g.monto or 0)
+    top_frecuencia = [
+        {"nombre": n, "veces": v["n"], "total": round(v["total"], 2)}
+        for n, v in sorted(agg.items(), key=lambda kv: (-kv[1]["n"], -kv[1]["total"]))[:10]
+    ]
+    top_monto = [
+        {"nombre": n, "veces": v["n"], "total": round(v["total"], 2)}
+        for n, v in sorted(agg.items(), key=lambda kv: -kv[1]["total"])[:10]
+    ]
+
+    # --- histórico de años anteriores (para comparar) ---
+    historico = []
+    if tipo == "empresa":
+        hist = db.query(ContabilidadMensualHistorica).filter(
+            ContabilidadMensualHistorica.empresa_id == cliente_id
+        ).all()
+        por_anio = {}
+        for h in hist:
+            e = por_anio.setdefault(h.anio, {"ing": 0.0, "gasto": 0.0})
+            e["ing"] += float(h.ingreso_total or 0)
+            e["gasto"] += float(h.gasto_total_deducible or 0)
+        historico = [
+            {"anio": a, "ingreso_total": round(v["ing"], 2), "gasto_total": round(v["gasto"], 2)}
+            for a, v in sorted(por_anio.items())
+        ]
+
+    return {
+        "cliente": {"tipo": tipo, "id": cliente_id, "nombre": cliente.nombre},
+        "tabla_mensual": tabla_mensual,
+        "gastos_por_categoria": gastos_por_categoria,
+        "pago_colaboradores": pago_colaboradores,
+        "top_frecuencia": top_frecuencia,
+        "top_monto": top_monto,
+        "historico": historico,
+        "totales": {
+            "depositos": round(sum(m["depositos"] for m in tabla_mensual), 2),
+            "gastos_totales": round(total_gastos, 2),
+            "gastos_deducibles": round(sum(m["gastos_deducibles"] for m in tabla_mensual), 2),
+        },
+    }
+
+
 @app.post("/api/_reset_saldos_nomina")
 def reset_saldos_nomina(db: Session = Depends(get_db), _=Depends(require_admin)):
     """Pone en $0 el saldo pendiente de comisión de todos los trabajadores,

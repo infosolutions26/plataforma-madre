@@ -874,8 +874,28 @@
           <h1 class="page-title">Contabilidad</h1>
           <div class="subtabs" id="ctbTopTabs">
             <div class="subtab active" data-ctbtab="pipeline">Cargar y clasificar</div>
+            <div class="subtab" data-ctbtab="entregable">Armar entregable</div>
             <div class="subtab" data-ctbtab="historico">Histórico</div>
             <div class="subtab" data-ctbtab="comercios">Comercios aprendidos</div>
+          </div>
+
+          <!-- ---- Armar entregable ---- -->
+          <div id="ctbTabEntregable" style="display:none;">
+            <p class="page-sub" style="margin-top:0;">Elige un cliente y el sistema arma todas las tablas del entregable con lo que ya está clasificado. Copia cada tabla con su botón y pégala en tu plantilla de Google Docs. Las notas las escribes tú a mano.</p>
+            <div class="panel">
+              <div class="field-row">
+                <div class="field">
+                  <label>Cliente / empresa</label>
+                  <input type="text" id="ctbEntCliente" placeholder="Busca por nombre..." autocomplete="off">
+                  <div id="ctbEntClienteResultados" style="position:relative;"></div>
+                </div>
+                <div class="field" style="justify-content:flex-end; display:flex; flex-direction:column;">
+                  <label>&nbsp;</label>
+                  <div id="ctbEntClienteElegido" class="hint" style="padding:8px 0;">Ningún cliente elegido aún.</div>
+                </div>
+              </div>
+            </div>
+            <div id="ctbEntTablas"></div>
           </div>
 
           <!-- ---- Cargar y clasificar (pipeline de 3 pasos) ---- -->
@@ -1710,9 +1730,11 @@
       tab.classList.add("active");
       var cual = tab.dataset.ctbtab;
       document.getElementById("ctbTabPipeline").style.display = cual === "pipeline" ? "" : "none";
+      document.getElementById("ctbTabEntregable").style.display = cual === "entregable" ? "" : "none";
       document.getElementById("ctbTabHistorico").style.display = cual === "historico" ? "" : "none";
       document.getElementById("ctbTabComercios").style.display = cual === "comercios" ? "" : "none";
       if (cual === "historico") renderContabilidadEmpresas();
+      if (cual === "entregable") { cargarCategoriasContabilidad(); bindEntregable(); }
       if (cual === "comercios" && !state.comerciosCargadosUnaVez) {
         state.comerciosCargadosUnaVez = true;
         cargarCategoriasContabilidad().then(function(){ renderComercios(""); });
@@ -1788,10 +1810,142 @@
     // asegura que el subtab pipeline esté activo al entrar a la sección
     document.querySelectorAll("#ctbTopTabs .subtab").forEach(function(t){ t.classList.toggle("active", t.dataset.ctbtab === "pipeline"); });
     document.getElementById("ctbTabPipeline").style.display = "";
+    document.getElementById("ctbTabEntregable").style.display = "none";
     document.getElementById("ctbTabHistorico").style.display = "none";
     document.getElementById("ctbTabComercios").style.display = "none";
     cargarCategoriasContabilidad();
     bindPipeline();
+  }
+
+  // ---------- armar entregable ----------
+  var entregableBound = false;
+  var entCliente = null, entBuscarTimer = null;
+  function bindEntregable(){
+    if (entregableBound) return;
+    entregableBound = true;
+    var inp = document.getElementById("ctbEntCliente");
+    inp.addEventListener("input", function(){
+      clearTimeout(entBuscarTimer);
+      var q = inp.value.trim();
+      entBuscarTimer = setTimeout(function(){ buscarClienteEnt(q); }, 250);
+    });
+  }
+  function buscarClienteEnt(q){
+    var cont = document.getElementById("ctbEntClienteResultados");
+    if (!q) { cont.innerHTML = ""; return; }
+    api("/api/clientes/buscar?q=" + encodeURIComponent(q)).then(function(lista){
+      cont.innerHTML = "";
+      var box = el("div");
+      box.style.cssText = "position:absolute; z-index:20; background:var(--card,#fff); border:1px solid var(--line); border-radius:8px; max-height:220px; overflow:auto; width:100%; box-shadow:0 6px 20px rgba(0,0,0,.12);";
+      lista.slice(0, 25).forEach(function(c){
+        var row = el("div", null, c.nombre + ' <span class="hint">(' + (c.tipo === "empresa" ? "empresa" : "persona") + ')</span>');
+        row.style.cssText = "padding:8px 10px; cursor:pointer;";
+        row.addEventListener("mouseenter", function(){ row.style.background = "var(--sidebar-hover,rgba(0,0,0,.05))"; });
+        row.addEventListener("mouseleave", function(){ row.style.background = ""; });
+        row.addEventListener("click", function(){
+          entCliente = { tipo: c.tipo, id: c.id, nombre: c.nombre };
+          document.getElementById("ctbEntCliente").value = c.nombre;
+          document.getElementById("ctbEntClienteElegido").textContent = "Cliente: " + c.nombre;
+          cont.innerHTML = "";
+          cargarEntregable();
+        });
+        box.appendChild(row);
+      });
+      if (lista.length) cont.appendChild(box);
+    }).catch(function(e){ if (e.message !== "no-auth") console.error(e); });
+  }
+
+  function money2(n){ return "$" + Number(n||0).toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2}); }
+
+  // construye una tabla con encabezado "Copiar" que copia el <table> con formato a Google Docs
+  function tablaEntregable(titulo, columnas, filas, subtitulo){
+    var wrap = el("div", "panel");
+    var head = el("div", "h2row");
+    var h = el("h2", null, titulo);
+    var btn = el("button", "btn small", "Copiar tabla"); btn.type = "button";
+    head.appendChild(h); head.appendChild(btn);
+    wrap.appendChild(head);
+    if (subtitulo) { var s = el("p", "hint"); s.style.margin = "-4px 0 8px"; s.textContent = subtitulo; wrap.appendChild(s); }
+    var tw = el("div", "table-wrap");
+    var table = el("table");
+    var thead = el("thead"), htr = el("tr");
+    columnas.forEach(function(c){ var th = el("th", c.num ? "num" : null, c.label); htr.appendChild(th); });
+    thead.appendChild(htr); table.appendChild(thead);
+    var tbody = el("tbody");
+    if (!filas.length) {
+      var tr0 = el("tr"); var td0 = el("td", null, "Sin datos."); td0.colSpan = columnas.length; tr0.appendChild(td0); tbody.appendChild(tr0);
+    }
+    filas.forEach(function(f){
+      var tr = el("tr");
+      columnas.forEach(function(c){ tr.appendChild(el("td", c.num ? "num" : null, f[c.key])); });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    tw.appendChild(table); wrap.appendChild(tw);
+    btn.addEventListener("click", function(){
+      var rng = document.createRange(); rng.selectNode(table);
+      var selc = window.getSelection(); selc.removeAllRanges(); selc.addRange(rng);
+      try { document.execCommand("copy"); btn.textContent = "✓ Copiada"; setTimeout(function(){ btn.textContent = "Copiar tabla"; }, 1500); }
+      catch (e) { btn.textContent = "No se pudo"; }
+      selc.removeAllRanges();
+    });
+    return wrap;
+  }
+
+  function cargarEntregable(){
+    if (!entCliente) return;
+    var cont = document.getElementById("ctbEntTablas");
+    cont.innerHTML = '<div class="panel"><p class="hint" style="padding:14px 0;">Armando tablas…</p></div>';
+    api("/api/contabilidad/entregable/" + entCliente.tipo + "/" + entCliente.id).then(function(d){
+      cont.innerHTML = "";
+      if (d.vacio) {
+        cont.innerHTML = '<div class="panel"><p class="hint" style="padding:14px 0;">Este cliente todavía no tiene gastos clasificados. Sube y clasifica sus estados de cuenta primero (pestaña "Cargar y clasificar").</p></div>';
+        return;
+      }
+      // 1. tabla mensual
+      cont.appendChild(tablaEntregable(
+        "Depósitos y gastos por mes",
+        [{key:"periodo",label:"Mes"},{key:"dep",label:"Depósitos",num:true},{key:"ded",label:"Gastos deducibles",num:true},{key:"tot",label:"Gastos totales",num:true}],
+        d.tabla_mensual.map(function(m){ return {periodo: m.mes_nombre + " " + m.anio, dep: money2(m.depositos), ded: money2(m.gastos_deducibles), tot: money2(m.gastos_totales)}; })
+          .concat([{periodo:"TOTAL", dep: money2(d.totales.depositos), ded: money2(d.totales.gastos_deducibles), tot: money2(d.totales.gastos_totales)}])
+      ));
+      // 2. gastos por categoría
+      cont.appendChild(tablaEntregable(
+        "Gastos por categoría",
+        [{key:"cat",label:"Categoría"},{key:"total",label:"Total",num:true},{key:"pct",label:"Porcentaje",num:true}],
+        d.gastos_por_categoria.map(function(c){ return {cat:c.categoria, total:money2(c.total), pct:c.porcentaje.toFixed(1)+"%"}; })
+      ));
+      // 3. pago a colaboradores (Contract Labor)
+      cont.appendChild(tablaEntregable(
+        "Pago a colaboradores (Contract Labor)",
+        [{key:"nombre",label:"Nombre"},{key:"total",label:"Monto",num:true}],
+        d.pago_colaboradores.map(function(c){ return {nombre:c.nombre, total:money2(c.total)}; }),
+        "Agrupado automáticamente de la categoría Contract Labor."
+      ));
+      // 4. top comercios por frecuencia
+      cont.appendChild(tablaEntregable(
+        "Top 10 comercios por frecuencia",
+        [{key:"nombre",label:"Comercio"},{key:"veces",label:"Veces",num:true},{key:"total",label:"Total",num:true}],
+        d.top_frecuencia.map(function(c){ return {nombre:c.nombre, veces:String(c.veces), total:money2(c.total)}; }),
+        "Excluye Contract Labor, Personal y Savings. Borra en tu documento los que no quieras mostrar."
+      ));
+      // 5. top comercios por monto
+      cont.appendChild(tablaEntregable(
+        "Top 10 comercios por monto",
+        [{key:"nombre",label:"Comercio"},{key:"total",label:"Total",num:true},{key:"veces",label:"Veces",num:true}],
+        d.top_monto.map(function(c){ return {nombre:c.nombre, total:money2(c.total), veces:String(c.veces)}; }),
+        "Excluye Contract Labor, Personal y Savings."
+      ));
+      // 6. histórico años anteriores
+      if (d.historico && d.historico.length) {
+        cont.appendChild(tablaEntregable(
+          "Histórico de años anteriores",
+          [{key:"anio",label:"Año"},{key:"ing",label:"Ingresos",num:true},{key:"gasto",label:"Gastos",num:true}],
+          d.historico.map(function(h){ return {anio:String(h.anio), ing:money2(h.ingreso_total), gasto:money2(h.gasto_total)}; }),
+          "Para comparar contra periodos anteriores del mismo cliente."
+        ));
+      }
+    }).catch(function(e){ if (e.message !== "no-auth") console.error(e); });
   }
 
   var pipelineBound = false;
