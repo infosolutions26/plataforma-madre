@@ -75,9 +75,10 @@ STATEMENT_SCHEMA = {
                     },
                     "date": {"type": "string", "description": "Fecha de la transacción, YYYY-MM-DD. Si solo hay mes/día, usa el año del periodo."},
                     "description": {"type": "string", "description": "Descripción/concepto tal cual aparece, sin modificar."},
+                    "merchant": {"type": "string", "description": "El COMERCIO o beneficiario LIMPIO, sin la fecha, ciudad, estado, número de tarjeta, número de referencia ni el tipo de transacción. Ej. de 'Card purchase 01/06 STARBUCKS #123 AURORA IL Card 3916' extrae 'STARBUCKS'; de 'Zelle payment to Gustavo' extrae 'GUSTAVO'; de 'WM SUPERCENTER' extrae 'WALMART' si es reconocible, si no déjalo como aparece. En MAYÚSCULAS. Para cargos genéricos del banco (monthly service fee, atm fee, withdrawal) usa una etiqueta corta del concepto."},
                     "amount": {"type": "number", "description": "Monto SIEMPRE positivo; el signo lo da 'type'."},
                 },
-                "required": ["type", "date", "description", "amount"],
+                "required": ["type", "date", "description", "merchant", "amount"],
             },
         },
     },
@@ -109,6 +110,11 @@ deposits_total = pagos y créditos recibidos; withdrawals_total = compras y carg
 cargos financieros/anuales; ending_balance = saldo nuevo ('new balance').
 - TODAS las transacciones del periodo, en el orden en que aparecen, clasificadas en: \
 'Deposits and Credits', 'Withdrawals and Debits' o 'Checks'.
+- Por cada transacción, además de la descripción tal cual, extrae 'merchant': el comercio o \
+beneficiario LIMPIO, quitando la fecha, la ciudad, el estado, el número de tarjeta, los \
+números de referencia y el tipo de transacción. Es lo que se usa para agrupar gastos del \
+mismo comercio, así que dos compras en el mismo lugar deben dar el MISMO 'merchant'. Para \
+pagos a personas (Zelle, transferencias) usa el nombre de la persona. En MAYÚSCULAS.
 - 'amount' siempre positivo; el signo lo determina 'type'.
 - Cada transacción DEBE tener su fecha real (la fecha en que ocurrió, no la del corte). Es \
 crítico: si el estado solo trae mes/día, complétala con el año del periodo.
@@ -248,24 +254,34 @@ def ingerir_estado(
             ))
             suma_ingreso += monto
         else:  # Withdrawals and Debits / Checks
-            desc = tx.get("description", "")
-            com = dicc.get(normaliza_comercio(desc))
+            # 'merchant' (comercio limpio que da el modelo) es lo que agrupa y matchea
+            # contra el diccionario; si no vino, cae a la descripción completa.
+            comercio_txt = (tx.get("merchant") or tx.get("description") or "").strip()
+            com = dicc.get(normaliza_comercio(comercio_txt))
             db.add(Gasto(
                 empresa_id=cuenta.empresa_id, persona_id=cuenta.persona_id,
                 cuenta_id=cuenta.id, corte_id=corte.id, fecha=fecha_tx, monto=monto,
-                comercio_raw=desc,
+                comercio_raw=comercio_txt or tx.get("description", ""),
                 comercio_id=com.id if com else None,
                 categoria_id=com.categoria_sugerida_id if com else None,
                 clasificado=es_express,  # express no se clasifica a mano
             ))
             suma_gasto += monto
 
-    # validación: la suma extraída debe cuadrar (con tolerancia) con lo declarado
-    def _cuadra(extraido: float, declarado: Optional[float]) -> bool:
-        if not declarado:
-            return True  # el banco no declaró total explícito; no penaliza
-        tol = max(1.0, abs(float(declarado)) * 0.01)  # 1% o $1
-        return abs(extraido - float(declarado)) <= tol
-
-    corte.validado = _cuadra(suma_gasto, gasto_declarado) and _cuadra(suma_ingreso, data.get("deposits_total"))
+    # Validación por ECUACIÓN DE SALDOS (no por los subtotales declarados: al
+    # probar con Chase real, su resumen separa "electronic" de "card withdrawals"
+    # y el subtotal que extrae el modelo puede ser parcial — pero la suma de
+    # TODAS las transacciones sí cuadra contra el saldo final). Esto detecta de
+    # verdad si faltó o sobró alguna transacción. El signo depende del tipo:
+    #   débito : saldo_final = saldo_inicial + ingresos - gastos
+    #   crédito: saldo_final = saldo_inicial + gastos(compras) - ingresos(pagos)
+    si = float(data.get("beginning_balance") or 0)
+    sf = data.get("ending_balance")
+    es_credito = (cuenta.tipo == "credito")
+    if sf is None:
+        corte.validado = False
+    else:
+        esperado = si + (suma_gasto - suma_ingreso) if es_credito else si + (suma_ingreso - suma_gasto)
+        tol = max(1.0, abs(float(sf)) * 0.01)  # 1% del saldo final o $1
+        corte.validado = abs(esperado - float(sf)) <= tol
     return corte
