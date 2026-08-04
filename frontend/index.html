@@ -485,6 +485,7 @@
     <div class="navitem" data-view="stats"><span class="ic">▤</span> Estadísticas</div>
     <div class="navitem" data-view="config"><span class="ic">⚙</span> Configuración</div>
     <div class="navitem" data-view="taxslayer"><span class="ic">⇪</span> Reportes</div>
+    <div class="navitem" data-view="contabilidad"><span class="ic">▦</span> Contabilidad</div>
     <div class="sidebar-foot">
       <div class="session-lbl">Sesión iniciada como</div>
       <div style="display:flex; align-items:center; gap:10px; padding:6px 10px;">
@@ -858,6 +859,60 @@
               <thead><tr><th>Nombre en TaxSlayer</th><th>SSN</th><th>Estatus en TaxSlayer</th><th>¿Por qué no se ubicó?</th></tr></thead>
               <tbody id="tsListaBody"></tbody>
             </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= CONTABILIDAD (histórico importado) ================= -->
+      <section class="view" id="view-contabilidad">
+        <div id="contabilidadLocked" class="locked-box" style="display:none;">
+          <div class="ic">🔒</div>
+          <div><strong>No tienes acceso a Contabilidad.</strong></div>
+          <div class="hint">Solo Admin o quien tenga el permiso puede ver esta sección.</div>
+        </div>
+        <div id="contabilidadContent">
+          <div id="contabilidadListPanel">
+            <h1 class="page-title">Contabilidad</h1>
+            <p class="page-sub">Histórico de contabilidad mensual importado de Drive, por compañía. Solo aparecen aquí las que tienen al menos un año importado.</p>
+            <div class="panel">
+              <div class="field-row">
+                <div class="field"><label>Buscar compañía</label><input type="text" id="ctbBuscar" placeholder="Nombre..."></div>
+              </div>
+              <div class="table-wrap" style="margin-top:10px;">
+                <table>
+                  <thead><tr><th>Compañía</th><th>Giro</th><th>Años importados</th></tr></thead>
+                  <tbody id="ctbEmpresasBody"><tr><td colspan="3"><p class="hint" style="padding:14px 0;">Cargando…</p></td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div id="contabilidadDetallePanel" style="display:none;">
+            <a href="#" id="ctbVolver" style="display:inline-block; margin-bottom:10px; text-decoration:underline; color:inherit;">← Volver a la lista</a>
+            <h1 class="page-title" id="ctbEmpresaNombre">—</h1>
+            <p class="page-sub" id="ctbEmpresaGiro"></p>
+
+            <div class="subtabs" id="ctbAnioTabs"></div>
+
+            <div class="panel">
+              <h2>Totales mensuales</h2>
+              <div class="table-wrap" style="margin-top:6px;">
+                <table>
+                  <thead><tr><th>Mes</th><th class="num">Depósitos</th><th class="num">Gastos deducibles</th><th class="num">Saldo final</th></tr></thead>
+                  <tbody id="ctbMesesBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h2>Gastos por categoría</h2>
+              <div class="table-wrap" style="margin-top:6px;">
+                <table>
+                  <thead><tr id="ctbCategoriaHead"><th>Categoría</th></tr></thead>
+                  <tbody id="ctbCategoriaBody"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -1246,6 +1301,7 @@
         <label style="display:flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="trbPermisoSeguimiento"> Seguimiento</label>
         <label style="display:flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="trbPermisoConfiguracion"> Configuración</label>
         <label style="display:flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="trbPermisoReportes"> Reportes</label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="trbPermisoContabilidad"> Contabilidad</label>
       </div>
       <p class="hint" style="margin:0;">"Trabajadores" incluye poder ver sueldos y editar permisos de otros — dalo con cuidado.</p>
       <div class="divider-lbl">Servicios que da y % de comisión por defecto</div>
@@ -1370,7 +1426,11 @@
     camStreamProfile: null,
     statsCatalogosCargados: false,
     workersBasico: [],
-    comisionYaPagada: false
+    comisionYaPagada: false,
+    contabilidadCategorias: null,
+    contabilidadEmpresas: [],
+    contabilidadDetalle: null,   // {empresa, meses} de la empresa abierta
+    contabilidadAnio: null
   };
 
   function money(n){ return "$" + Number(n||0).toLocaleString("en-US"); }
@@ -1454,6 +1514,7 @@
       if (n.dataset.view === "stats") renderStats();
       if (n.dataset.view === "nomina") renderNomina();
       if (n.dataset.view === "seguimiento") renderSeguimiento();
+      if (n.dataset.view === "contabilidad") renderContabilidadEmpresas();
     });
   });
 
@@ -1546,6 +1607,135 @@
     }).catch(function(e){ if (e.message !== "no-auth") console.error(e); });
   }
 
+  // ---------- contabilidad (histórico importado) ----------
+  var MESES_LBL = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+  function renderContabilidadEmpresas(){
+    document.getElementById("contabilidadDetallePanel").style.display = "none";
+    document.getElementById("contabilidadListPanel").style.display = "";
+    var tbody = document.getElementById("ctbEmpresasBody");
+    tbody.innerHTML = '<tr><td colspan="3"><p class="hint" style="padding:14px 0;">Cargando…</p></td></tr>';
+    api("/api/contabilidad/empresas").then(function(lista){
+      state.contabilidadEmpresas = lista;
+      pintarTablaContabilidadEmpresas(lista);
+    }).catch(function(e){ if (e.message !== "no-auth") console.error(e); });
+  }
+
+  function pintarTablaContabilidadEmpresas(lista){
+    var tbody = document.getElementById("ctbEmpresasBody");
+    tbody.innerHTML = "";
+    if (!lista.length) {
+      tbody.innerHTML = '<tr><td colspan="3"><p class="hint" style="padding:14px 0;">No hay compañías con contabilidad histórica importada todavía.</p></td></tr>';
+      return;
+    }
+    lista.forEach(function(e){
+      var tr = el("tr");
+      tr.style.cursor = "pointer";
+      tr.appendChild(el("td", null, e.nombre));
+      tr.appendChild(el("td", null, e.giro || "—"));
+      tr.appendChild(el("td", null, e.anios.join(", ")));
+      tr.addEventListener("click", function(){ abrirContabilidadEmpresa(e.id); });
+      tbody.appendChild(tr);
+    });
+  }
+
+  document.getElementById("ctbBuscar").addEventListener("input", function(){
+    var q = this.value.trim().toLowerCase();
+    var filtrada = !q ? state.contabilidadEmpresas : state.contabilidadEmpresas.filter(function(e){
+      return e.nombre.toLowerCase().indexOf(q) > -1;
+    });
+    pintarTablaContabilidadEmpresas(filtrada);
+  });
+
+  document.getElementById("ctbVolver").addEventListener("click", function(e){
+    e.preventDefault();
+    document.getElementById("contabilidadDetallePanel").style.display = "none";
+    document.getElementById("contabilidadListPanel").style.display = "";
+  });
+
+  function cargarCategoriasContabilidad(){
+    if (state.contabilidadCategorias) return Promise.resolve(state.contabilidadCategorias);
+    return api("/api/contabilidad/categorias").then(function(cats){
+      state.contabilidadCategorias = cats;
+      return cats;
+    });
+  }
+
+  function abrirContabilidadEmpresa(empresaId){
+    document.getElementById("contabilidadListPanel").style.display = "none";
+    document.getElementById("contabilidadDetallePanel").style.display = "";
+    document.getElementById("ctbEmpresaNombre").textContent = "Cargando…";
+    document.getElementById("ctbAnioTabs").innerHTML = "";
+    document.getElementById("ctbMesesBody").innerHTML = "";
+    document.getElementById("ctbCategoriaBody").innerHTML = "";
+    Promise.all([api("/api/contabilidad/empresas/" + empresaId), cargarCategoriasContabilidad()]).then(function(r){
+      state.contabilidadDetalle = r[0];
+      var anios = [];
+      r[0].meses.forEach(function(m){ if (anios.indexOf(m.anio) === -1) anios.push(m.anio); });
+      anios.sort();
+      state.contabilidadAnio = anios.length ? anios[anios.length - 1] : null;
+      document.getElementById("ctbEmpresaNombre").textContent = r[0].empresa.nombre;
+      document.getElementById("ctbEmpresaGiro").textContent = r[0].empresa.giro || "";
+      var tabsWrap = document.getElementById("ctbAnioTabs");
+      tabsWrap.innerHTML = "";
+      anios.forEach(function(a){
+        var tab = el("div", "subtab" + (a === state.contabilidadAnio ? " active" : ""), String(a));
+        tab.addEventListener("click", function(){
+          state.contabilidadAnio = a;
+          tabsWrap.querySelectorAll(".subtab").forEach(function(t){ t.classList.remove("active"); });
+          tab.classList.add("active");
+          renderContabilidadDetalleAnio();
+        });
+        tabsWrap.appendChild(tab);
+      });
+      renderContabilidadDetalleAnio();
+    }).catch(function(e){ if (e.message !== "no-auth") console.error(e); });
+  }
+
+  function renderContabilidadDetalleAnio(){
+    var detalle = state.contabilidadDetalle;
+    if (!detalle) return;
+    var meses = detalle.meses.filter(function(m){ return m.anio === state.contabilidadAnio; });
+
+    var tbodyMeses = document.getElementById("ctbMesesBody");
+    tbodyMeses.innerHTML = "";
+    if (!meses.length) {
+      tbodyMeses.innerHTML = '<tr><td colspan="4"><p class="hint" style="padding:14px 0;">Sin meses con datos en este año.</p></td></tr>';
+    }
+    meses.forEach(function(m){
+      var tr = el("tr");
+      tr.appendChild(el("td", null, MESES_LBL[m.mes]));
+      tr.appendChild(el("td", "num", money(m.ingreso_total)));
+      tr.appendChild(el("td", "num", money(m.gasto_total_deducible)));
+      tr.appendChild(el("td", "num", m.saldo_final === null ? "—" : money(m.saldo_final)));
+      tbodyMeses.appendChild(tr);
+    });
+
+    var cats = state.contabilidadCategorias || [];
+    var head = document.getElementById("ctbCategoriaHead");
+    head.innerHTML = "<th>Categoría</th>";
+    meses.forEach(function(m){ head.appendChild(el("th", "num", MESES_LBL[m.mes])); });
+
+    var tbodyCat = document.getElementById("ctbCategoriaBody");
+    tbodyCat.innerHTML = "";
+    cats.forEach(function(cat){
+      var algunMonto = meses.some(function(m){ return (m.gasto_por_categoria || {})[cat.nombre]; });
+      if (!algunMonto) return;
+      var tr = el("tr");
+      var tdNombre = el("td", null, cat.nombre);
+      if (!cat.es_deducible) tdNombre.style.opacity = "0.6";
+      tr.appendChild(tdNombre);
+      meses.forEach(function(m){
+        var monto = (m.gasto_por_categoria || {})[cat.nombre] || 0;
+        tr.appendChild(el("td", "num", monto ? money(monto) : "—"));
+      });
+      tbodyCat.appendChild(tr);
+    });
+    if (!tbodyCat.children.length) {
+      tbodyCat.innerHTML = '<tr><td colspan="' + (meses.length + 1) + '"><p class="hint" style="padding:14px 0;">Sin gastos por categoría en este año.</p></td></tr>';
+    }
+  }
+
   // ---------- session / permissions ----------
   function tienePermiso(nombrePermiso){
     var u = state.currentUser;
@@ -1560,6 +1750,7 @@
     var puedeSeguimiento = tienePermiso("seguimiento");
     var puedeConfig = tienePermiso("configuracion");
     var puedeReportes = tienePermiso("reportes");
+    var puedeContabilidad = tienePermiso("contabilidad");
     document.getElementById("userAvatar").textContent = initials(u.nombre);
     document.getElementById("userName").textContent = u.nombre;
     document.getElementById("userRol").textContent = isAdmin ? "Admin" : "Trabajador";
@@ -1572,6 +1763,7 @@
     document.querySelector('.navitem[data-view="trabajadores"]').classList.toggle("hidden", !puedeTrabajadores);
     document.querySelector('.navitem[data-view="config"]').classList.toggle("hidden", !puedeConfig);
     document.querySelector('.navitem[data-view="taxslayer"]').classList.toggle("hidden", !puedeReportes);
+    document.querySelector('.navitem[data-view="contabilidad"]').classList.toggle("hidden", !puedeContabilidad);
     document.getElementById("nominaLocked").style.display = puedeNomina ? "none" : "block";
     document.getElementById("nominaContent").style.display = puedeNomina ? "block" : "none";
     document.getElementById("statsLocked").style.display = puedeStats ? "none" : "block";
@@ -1580,6 +1772,8 @@
     document.getElementById("seguimientoContent").style.display = puedeSeguimiento ? "block" : "none";
     document.getElementById("configLocked").style.display = puedeConfig ? "none" : "block";
     document.getElementById("configContent").style.display = puedeConfig ? "block" : "none";
+    document.getElementById("contabilidadLocked").style.display = puedeContabilidad ? "none" : "block";
+    document.getElementById("contabilidadContent").style.display = puedeContabilidad ? "block" : "none";
     showView("servicios");
     renderServiciosTable();
     cargarFechaInicioDefault();
@@ -2773,6 +2967,7 @@
     document.getElementById("trbPermisoSeguimiento").checked = permisosActuales.indexOf("seguimiento") > -1;
     document.getElementById("trbPermisoConfiguracion").checked = permisosActuales.indexOf("configuracion") > -1;
     document.getElementById("trbPermisoReportes").checked = permisosActuales.indexOf("reportes") > -1;
+    document.getElementById("trbPermisoContabilidad").checked = permisosActuales.indexOf("contabilidad") > -1;
     var rows = document.getElementById("trbConfigRows");
     rows.innerHTML = "";
     if (editing && editing.config_servicios && editing.config_servicios.length) {
@@ -2810,6 +3005,7 @@
         document.getElementById("trbPermisoSeguimiento").checked ? "seguimiento" : null,
         document.getElementById("trbPermisoConfiguracion").checked ? "configuracion" : null,
         document.getElementById("trbPermisoReportes").checked ? "reportes" : null,
+        document.getElementById("trbPermisoContabilidad").checked ? "contabilidad" : null,
       ].filter(Boolean),
     };
     var btn = this;

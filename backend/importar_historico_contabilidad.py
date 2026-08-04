@@ -129,6 +129,27 @@ def main() -> None:
 
     empresas_existentes = {normaliza_para_match(e.nombre): e for e in db.query(Empresa).all()}
 
+    # Correcciones manuales confirmadas por el usuario (2026-07): pares carpeta-Drive ->
+    # nombre real en producción que el matching automático no detectó por typos/nombres
+    # truncados, MENOS "A S REMODELING LLC" (confirmado como empresa distinta de
+    # "ZAMUDIOS REMODELING", esa sí se deja crear como nueva).
+    ALIAS_EMPRESA_CONFIRMADOS = {
+        "XIMRAM EXPRESS LLC": "XIRAM EXPRESS LLC",
+        "FLORES CUSTOME INSTALLATION LLC": "FLORES CUSTOM INSTALLATIONS LLC",
+        "ITATA VALLEY IMPORTS LLC": "ITATA VALLEY IMPORTLLC",
+        "ALDAREMSE INVERSIONES LLC": "ADLAREMSE INVERSIONES LLC",
+        "YOUR CLEANING COMPANY": "YOUR CLEANING FACTORY LLC",
+        "VIANEY PET SALON": "VIANEYS PET SALON & DAYCARE LLC",
+        "LUCHA LIBRE TOTAL": "LUCHA LIBRE TOTAL LLT LLC",
+        "J&J PAINTING AND CONSTRUCT": "J&J PAINTING AND CONSTRUCTION LLC",
+        "C&C RESIDENTIAL DEVELOPMENT AND  REMODELING LLC": "C&C RESIDENTIAL DEVELOPMENT",
+        "VERSATIL BEAUTY STUDIO PROS INC.": "VERSATIL BEAUTY STUDIO VS INC",
+    }
+    for nombre_drive, nombre_real in ALIAS_EMPRESA_CONFIRMADOS.items():
+        clave_real = normaliza_para_match(nombre_real)
+        if clave_real in empresas_existentes:
+            empresas_existentes[normaliza_para_match(nombre_drive)] = empresas_existentes[clave_real]
+
     svc = drive._get_service()
     carpetas_empresa = [f for f in listar_hijos(svc, args.carpeta_raiz) if f["mimeType"] == FOLDER_MIME]
     if args.limite:

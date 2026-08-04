@@ -22,6 +22,7 @@ import drive
 import recibos
 from auth import current_trabajador, require_admin, require_permiso, require_permiso_any, router as auth_router
 from catalogo import ESTATUS_LIBERA_COMISION, SERVICE_TYPES, linea_de
+from contabilidad import CategoriaGasto, ContabilidadMensualHistorica
 from database import Base, engine, encrypt_ssn, decrypt_ssn, get_db, hash_password
 from models import (
     Archivo,
@@ -1200,7 +1201,7 @@ def editar_estatus_rapido(
 
 # ---------- trabajadores (admin) ----------
 
-PERMISOS_VALIDOS = ["nomina", "estadisticas", "trabajadores", "seguimiento", "configuracion", "reportes"]
+PERMISOS_VALIDOS = ["nomina", "estadisticas", "trabajadores", "seguimiento", "configuracion", "reportes", "contabilidad"]
 
 
 class TrabajadorIn(BaseModel):
@@ -1634,6 +1635,66 @@ def eliminar_temporada(temporada_id: int, db: Session = Depends(get_db), _=Depen
     db.delete(t)
     db.commit()
     return {"ok": True}
+
+
+# ---------- contabilidad (histórico importado desde Drive, ver importar_historico_contabilidad.py) ----------
+
+@app.get("/api/contabilidad/categorias")
+def listar_categorias_gasto(db: Session = Depends(get_db), _=Depends(require_permiso("contabilidad"))):
+    cats = db.query(CategoriaGasto).order_by(CategoriaGasto.orden).all()
+    return [{"nombre": c.nombre, "es_deducible": c.es_deducible} for c in cats]
+
+
+@app.get("/api/contabilidad/empresas")
+def listar_empresas_contabilidad(
+    q: Optional[str] = None, db: Session = Depends(get_db), _=Depends(require_permiso("contabilidad")),
+):
+    """Solo empresas con al menos un renglón histórico importado — no las 274
+    empresas del CRM, para que la lista sirva de verdad como índice del módulo."""
+    filas = db.query(ContabilidadMensualHistorica.empresa_id, ContabilidadMensualHistorica.anio).distinct().all()
+    anios_por_empresa: dict[int, set] = {}
+    for empresa_id, anio in filas:
+        if empresa_id is not None:
+            anios_por_empresa.setdefault(empresa_id, set()).add(anio)
+    if not anios_por_empresa:
+        return []
+    query = db.query(Empresa).filter(Empresa.id.in_(anios_por_empresa.keys()))
+    if q:
+        query = query.filter(Empresa.nombre.ilike(f"%{q}%"))
+    empresas = query.order_by(Empresa.nombre).all()
+    return [
+        {"id": e.id, "nombre": e.nombre, "giro": e.giro, "anios": sorted(anios_por_empresa[e.id])}
+        for e in empresas
+    ]
+
+
+@app.get("/api/contabilidad/empresas/{empresa_id}")
+def detalle_contabilidad_empresa(
+    empresa_id: int, db: Session = Depends(get_db), _=Depends(require_permiso("contabilidad")),
+):
+    empresa = db.get(Empresa, empresa_id)
+    if not empresa:
+        raise HTTPException(status_code=404)
+    filas = (
+        db.query(ContabilidadMensualHistorica)
+        .filter(ContabilidadMensualHistorica.empresa_id == empresa_id)
+        .order_by(ContabilidadMensualHistorica.anio, ContabilidadMensualHistorica.mes)
+        .all()
+    )
+    return {
+        "empresa": {"id": empresa.id, "nombre": empresa.nombre, "giro": empresa.giro},
+        "meses": [
+            {
+                "anio": f.anio, "mes": f.mes,
+                "ingreso_total": float(f.ingreso_total or 0),
+                "gasto_total_deducible": float(f.gasto_total_deducible or 0),
+                "saldo_final": float(f.saldo_final) if f.saldo_final is not None else None,
+                "gasto_por_categoria": {k: float(v) for k, v in (f.gasto_por_categoria or {}).items()},
+                "fuente_archivo": f.fuente_archivo,
+            }
+            for f in filas
+        ],
+    }
 
 
 @app.post("/api/_reset_saldos_nomina")
