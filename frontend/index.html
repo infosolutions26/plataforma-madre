@@ -873,12 +873,78 @@
         <div id="contabilidadContent">
           <h1 class="page-title">Contabilidad</h1>
           <div class="subtabs" id="ctbTopTabs">
-            <div class="subtab active" data-ctbtab="historico">Histórico</div>
+            <div class="subtab active" data-ctbtab="pipeline">Cargar y clasificar</div>
+            <div class="subtab" data-ctbtab="historico">Histórico</div>
             <div class="subtab" data-ctbtab="comercios">Comercios aprendidos</div>
           </div>
 
+          <!-- ---- Cargar y clasificar (pipeline de 3 pasos) ---- -->
+          <div id="ctbTabPipeline">
+            <p class="page-sub" style="margin-top:0;">Sube los estados de cuenta (PDF) de un cliente — el sistema lee cada uno, detecta banco y cuenta, y separa los gastos por su fecha real. Luego clasificas los gastos agrupados por comercio, con la categoría ya sugerida.</p>
+
+            <!-- Paso 1: cliente + tipo + subir -->
+            <div class="panel">
+              <div class="field-row3">
+                <div class="field">
+                  <label>Cliente / empresa</label>
+                  <input type="text" id="ctbPipeCliente" placeholder="Busca por nombre..." autocomplete="off">
+                  <div id="ctbPipeClienteResultados" style="position:relative;"></div>
+                </div>
+                <div class="field">
+                  <label>Tipo de contabilidad</label>
+                  <select id="ctbPipeTipo">
+                    <option value="personalizada">Personalizada (se clasifica)</option>
+                    <option value="express">Express (solo totales)</option>
+                  </select>
+                </div>
+                <div class="field" style="justify-content:flex-end; display:flex; flex-direction:column;">
+                  <label>&nbsp;</label>
+                  <div id="ctbPipeClienteElegido" class="hint" style="padding:8px 0;">Ningún cliente elegido aún.</div>
+                </div>
+              </div>
+              <div class="field-row" style="margin-top:6px;">
+                <div class="field">
+                  <label>Estados de cuenta (PDF, uno o varios — todos del mismo cliente)</label>
+                  <input type="file" id="ctbPipeFiles" accept="application/pdf" multiple>
+                </div>
+                <div class="field" style="justify-content:flex-end; display:flex; flex-direction:column;">
+                  <label>&nbsp;</label>
+                  <button class="btn primary" id="ctbPipeSubir" type="button" disabled>Subir y leer</button>
+                </div>
+              </div>
+              <p class="hint" id="ctbPipeEstado" style="min-height:16px; margin:6px 0 0;"></p>
+            </div>
+
+            <!-- Resultado de la lectura (cortes) -->
+            <div class="panel" id="ctbPipeCortesPanel" style="display:none;">
+              <h2>Estados leídos</h2>
+              <div class="table-wrap" style="margin-top:6px;">
+                <table>
+                  <thead><tr><th>Archivo</th><th>Cuenta</th><th>Periodo</th><th class="num">Gastos</th><th class="num">Ingresos</th><th>Extracción</th></tr></thead>
+                  <tbody id="ctbPipeCortesBody"></tbody>
+                </table>
+              </div>
+              <p class="hint" style="margin:8px 0 0;">"Extracción validada" = la suma de lo extraído cuadra con el saldo final del banco. Si sale ⚠, conviene revisar ese PDF antes de armar el entregable.</p>
+            </div>
+
+            <!-- Paso 2: clasificación agrupada -->
+            <div class="panel" id="ctbPipeClasifPanel" style="display:none;">
+              <div class="h2row">
+                <h2>Clasificar gastos (agrupados por comercio)</h2>
+                <span class="hint" id="ctbPipeClasifResumen"></span>
+              </div>
+              <p class="hint" style="margin:-4px 0 10px;">Cada renglón junta todos los gastos del mismo comercio. Ajusta el nombre y la categoría si hace falta y pulsa Confirmar — eso lo enseña al sistema para la próxima. Los que ya traen categoría vienen sugeridos del histórico.</p>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Comercio</th><th class="num">Veces</th><th class="num">Total</th><th>Categoría</th><th></th></tr></thead>
+                  <tbody id="ctbPipeClasifBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
           <!-- ---- Histórico ---- -->
-          <div id="ctbTabHistorico">
+          <div id="ctbTabHistorico" style="display:none;">
           <div id="contabilidadListPanel">
             <p class="page-sub" style="margin-top:0;">Histórico de contabilidad mensual importado de Drive, por compañía. Solo aparecen aquí las que tienen al menos un año importado.</p>
             <div class="panel">
@@ -1455,7 +1521,9 @@
     contabilidadCategorias: null,
     contabilidadEmpresas: [],
     contabilidadDetalle: null,   // {empresa, meses} de la empresa abierta
-    contabilidadAnio: null
+    contabilidadAnio: null,
+    pipeCliente: null,           // {tipo, id, nombre} elegido para cargar/clasificar
+    pipeBuscarTimer: null
   };
 
   function money(n){ return "$" + Number(n||0).toLocaleString("en-US"); }
@@ -1539,7 +1607,7 @@
       if (n.dataset.view === "stats") renderStats();
       if (n.dataset.view === "nomina") renderNomina();
       if (n.dataset.view === "seguimiento") renderSeguimiento();
-      if (n.dataset.view === "contabilidad") renderContabilidadEmpresas();
+      if (n.dataset.view === "contabilidad") initContabilidadPipeline();
     });
   });
 
@@ -1635,15 +1703,17 @@
   // ---------- contabilidad (histórico importado) ----------
   var MESES_LBL = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
-  // subtabs Histórico / Comercios aprendidos
+  // subtabs Cargar y clasificar / Histórico / Comercios aprendidos
   document.querySelectorAll("#ctbTopTabs .subtab").forEach(function(tab){
     tab.addEventListener("click", function(){
       document.querySelectorAll("#ctbTopTabs .subtab").forEach(function(t){ t.classList.remove("active"); });
       tab.classList.add("active");
-      var esComercios = tab.dataset.ctbtab === "comercios";
-      document.getElementById("ctbTabHistorico").style.display = esComercios ? "none" : "";
-      document.getElementById("ctbTabComercios").style.display = esComercios ? "" : "none";
-      if (esComercios && !state.comerciosCargadosUnaVez) {
+      var cual = tab.dataset.ctbtab;
+      document.getElementById("ctbTabPipeline").style.display = cual === "pipeline" ? "" : "none";
+      document.getElementById("ctbTabHistorico").style.display = cual === "historico" ? "" : "none";
+      document.getElementById("ctbTabComercios").style.display = cual === "comercios" ? "" : "none";
+      if (cual === "historico") renderContabilidadEmpresas();
+      if (cual === "comercios" && !state.comerciosCargadosUnaVez) {
         state.comerciosCargadosUnaVez = true;
         cargarCategoriasContabilidad().then(function(){ renderComercios(""); });
       }
@@ -1711,6 +1781,165 @@
         tbody.appendChild(tr);
       });
     }).catch(function(e){ if (e.message !== "no-auth") console.error(e); });
+  }
+
+  // ---------- pipeline: cargar PDFs y clasificar ----------
+  function initContabilidadPipeline(){
+    // asegura que el subtab pipeline esté activo al entrar a la sección
+    document.querySelectorAll("#ctbTopTabs .subtab").forEach(function(t){ t.classList.toggle("active", t.dataset.ctbtab === "pipeline"); });
+    document.getElementById("ctbTabPipeline").style.display = "";
+    document.getElementById("ctbTabHistorico").style.display = "none";
+    document.getElementById("ctbTabComercios").style.display = "none";
+    cargarCategoriasContabilidad();
+    bindPipeline();
+  }
+
+  var pipelineBound = false;
+  function bindPipeline(){
+    if (pipelineBound) return;
+    pipelineBound = true;
+    var inpCliente = document.getElementById("ctbPipeCliente");
+    inpCliente.addEventListener("input", function(){
+      clearTimeout(state.pipeBuscarTimer);
+      var q = inpCliente.value.trim();
+      state.pipeBuscarTimer = setTimeout(function(){ buscarClientePipe(q); }, 250);
+    });
+    document.getElementById("ctbPipeFiles").addEventListener("change", actualizarBotonSubir);
+    document.getElementById("ctbPipeSubir").addEventListener("click", subirEstadosPipe);
+  }
+
+  function actualizarBotonSubir(){
+    var hayCliente = !!state.pipeCliente;
+    var hayFiles = document.getElementById("ctbPipeFiles").files.length > 0;
+    document.getElementById("ctbPipeSubir").disabled = !(hayCliente && hayFiles);
+  }
+
+  function buscarClientePipe(q){
+    var cont = document.getElementById("ctbPipeClienteResultados");
+    if (!q) { cont.innerHTML = ""; return; }
+    api("/api/clientes/buscar?q=" + encodeURIComponent(q)).then(function(lista){
+      cont.innerHTML = "";
+      var box = el("div");
+      box.style.cssText = "position:absolute; z-index:20; background:var(--card,#fff); border:1px solid var(--line); border-radius:8px; max-height:220px; overflow:auto; width:100%; box-shadow:0 6px 20px rgba(0,0,0,.12);";
+      lista.slice(0, 25).forEach(function(c){
+        var row = el("div", null, c.nombre + ' <span class="hint">(' + (c.tipo === "empresa" ? "empresa" : "persona") + ')</span>');
+        row.style.cssText = "padding:8px 10px; cursor:pointer;";
+        row.addEventListener("mouseenter", function(){ row.style.background = "var(--sidebar-hover,rgba(0,0,0,.05))"; });
+        row.addEventListener("mouseleave", function(){ row.style.background = ""; });
+        row.addEventListener("click", function(){
+          state.pipeCliente = { tipo: c.tipo, id: c.id, nombre: c.nombre };
+          document.getElementById("ctbPipeCliente").value = c.nombre;
+          document.getElementById("ctbPipeClienteElegido").textContent = "Cliente: " + c.nombre;
+          cont.innerHTML = "";
+          actualizarBotonSubir();
+          cargarClasificacionPipe();  // si ya tiene gastos pendientes, muéstralos
+        });
+        box.appendChild(row);
+      });
+      if (lista.length) cont.appendChild(box);
+    }).catch(function(e){ if (e.message !== "no-auth") console.error(e); });
+  }
+
+  function subirEstadosPipe(){
+    if (!state.pipeCliente) return;
+    var files = document.getElementById("ctbPipeFiles").files;
+    if (!files.length) return;
+    var fd = new FormData();
+    fd.append("tipo_contabilidad", document.getElementById("ctbPipeTipo").value);
+    if (state.pipeCliente.tipo === "empresa") fd.append("empresa_id", state.pipeCliente.id);
+    else fd.append("persona_id", state.pipeCliente.id);
+    for (var i = 0; i < files.length; i++) fd.append("files", files[i]);
+
+    var btn = document.getElementById("ctbPipeSubir");
+    btn.disabled = true;
+    document.getElementById("ctbPipeEstado").textContent = "Leyendo " + files.length + " PDF(s) con IA… esto puede tardar unos segundos.";
+    uploadFile("/api/contabilidad/cortes/subir", fd).then(function(r){
+      pintarCortesPipe(r.resultados);
+      document.getElementById("ctbPipeEstado").textContent = "Listo. " + r.resultados.length + " estado(s) procesado(s).";
+      document.getElementById("ctbPipeFiles").value = "";
+      cargarClasificacionPipe();
+    }).catch(function(e){
+      document.getElementById("ctbPipeEstado").textContent = "Error: " + e.message;
+    }).then(function(){ btn.disabled = false; actualizarBotonSubir(); });
+  }
+
+  function pintarCortesPipe(resultados){
+    document.getElementById("ctbPipeCortesPanel").style.display = "";
+    var tb = document.getElementById("ctbPipeCortesBody");
+    tb.innerHTML = "";
+    resultados.forEach(function(r){
+      var tr = el("tr");
+      if (r.error) {
+        tr.appendChild(el("td", null, r.archivo));
+        var tdErr = el("td", null, "⚠ " + r.error); tdErr.colSpan = 5; tr.appendChild(tdErr);
+      } else {
+        tr.appendChild(el("td", null, r.archivo));
+        tr.appendChild(el("td", null, r.cuenta + " <span class='hint'>(" + r.tipo_cuenta + ")</span>"));
+        tr.appendChild(el("td", null, r.periodo));
+        tr.appendChild(el("td", "num", String(r.n_gastos)));
+        tr.appendChild(el("td", "num", String(r.n_ingresos)));
+        tr.appendChild(el("td", null, r.validado ? '<span class="pill ok">validada</span>' : '<span class="pill warn">⚠ revisar</span>'));
+      }
+      tb.appendChild(tr);
+    });
+  }
+
+  function cargarClasificacionPipe(){
+    if (!state.pipeCliente) return;
+    api("/api/contabilidad/clasificar/" + state.pipeCliente.tipo + "/" + state.pipeCliente.id).then(function(data){
+      var panel = document.getElementById("ctbPipeClasifPanel");
+      var body = document.getElementById("ctbPipeClasifBody");
+      if (!data.grupos.length) {
+        panel.style.display = data.cortes.length ? "" : "none";
+        body.innerHTML = '<tr><td colspan="5"><p class="hint" style="padding:14px 0;">No hay gastos pendientes de clasificar para este cliente. 🎉</p></td></tr>';
+        document.getElementById("ctbPipeClasifResumen").textContent = "";
+        return;
+      }
+      panel.style.display = "";
+      var totalPend = data.grupos.reduce(function(a, g){ return a + g.n; }, 0);
+      document.getElementById("ctbPipeClasifResumen").textContent = data.grupos.length + " comercios · " + totalPend + " gastos pendientes";
+      body.innerHTML = "";
+      data.grupos.forEach(function(g){ body.appendChild(filaClasificacion(g)); });
+    }).catch(function(e){ if (e.message !== "no-auth") console.error(e); });
+  }
+
+  function filaClasificacion(g){
+    var tr = el("tr");
+    var tdNombre = el("td");
+    var inpN = el("input"); inpN.type = "text"; inpN.value = g.nombre;
+    inpN.style.cssText = "width:100%; border:1px solid var(--line); background:transparent; padding:5px 7px; border-radius:6px; font:inherit; color:inherit;";
+    tdNombre.appendChild(inpN);
+
+    var tdVeces = el("td", "num", String(g.n));
+    var tdTotal = el("td", "num", money(g.total));
+
+    var tdCat = el("td");
+    var sel = el("select", "status-select neutral");
+    var vacia = el("option"); vacia.value = ""; vacia.textContent = "— elegir categoría —"; sel.appendChild(vacia);
+    (state.contabilidadCategorias || []).forEach(function(c){
+      var o = el("option"); o.value = c.id; o.textContent = c.nombre; sel.appendChild(o);
+    });
+    if (g.categoria_id) sel.value = String(g.categoria_id);
+    tdCat.appendChild(sel);
+
+    var tdBtn = el("td");
+    var btn = el("button", "btn primary small", "Confirmar"); btn.type = "button";
+    btn.addEventListener("click", function(){
+      var catId = sel.value ? Number(sel.value) : null;
+      if (!catId) { alert("Elige una categoría para este comercio."); return; }
+      btn.disabled = true; btn.textContent = "…";
+      api("/api/contabilidad/clasificar", {method:"POST", body:{
+        gasto_ids: g.gasto_ids, nombre_comercio: inpN.value.trim() || g.nombre, categoria_id: catId,
+      }}).then(function(){
+        tr.style.transition = "opacity .2s"; tr.style.opacity = "0.35";
+        btn.textContent = "✓";
+        setTimeout(cargarClasificacionPipe, 250);  // refresca contadores/pendientes
+      }).catch(function(e){ alert("No se pudo: " + e.message); btn.disabled = false; btn.textContent = "Confirmar"; });
+    });
+    tdBtn.appendChild(btn);
+
+    [tdNombre, tdVeces, tdTotal, tdCat, tdBtn].forEach(function(td){ tr.appendChild(td); });
+    return tr;
   }
 
   function renderContabilidadEmpresas(){

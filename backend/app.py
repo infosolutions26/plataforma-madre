@@ -1861,6 +1861,114 @@ async def subir_estados_cuenta(
     return {"resultados": resultados}
 
 
+# ---------- contabilidad: clasificación agrupada por comercio (fase 2) ----------
+
+def _filtro_cliente_gasto(query, tipo: str, cliente_id: int):
+    col = Gasto.empresa_id if tipo == "empresa" else Gasto.persona_id
+    return query.filter(col == cliente_id)
+
+
+@app.get("/api/contabilidad/clasificar/{tipo}/{cliente_id}")
+def gastos_para_clasificar(
+    tipo: str, cliente_id: int, db: Session = Depends(get_db), _=Depends(require_permiso("contabilidad")),
+):
+    """Devuelve los cortes del cliente y sus gastos pendientes AGRUPADOS por
+    comercio (no uno por uno). Cada grupo trae la categoría ya pre-sugerida del
+    diccionario y todos los gasto_ids que lo componen, ordenados por monto total
+    para atender primero lo más grande."""
+    if tipo not in ("empresa", "persona"):
+        raise HTTPException(status_code=400)
+    col = Gasto.empresa_id if tipo == "empresa" else Gasto.persona_id
+    cats = {c.id: c.nombre for c in db.query(CategoriaGasto).all()}
+
+    # cortes del cliente (vía sus cuentas)
+    cuenta_col = CuentaBancaria.empresa_id if tipo == "empresa" else CuentaBancaria.persona_id
+    cuentas = db.query(CuentaBancaria).filter(cuenta_col == cliente_id).all()
+    cuenta_ids = [c.id for c in cuentas]
+    cortes_info = []
+    if cuenta_ids:
+        cortes = db.query(CorteEstadoCuenta).filter(CorteEstadoCuenta.cuenta_id.in_(cuenta_ids)).order_by(CorteEstadoCuenta.fecha_inicio).all()
+        apodo = {c.id: c.apodo for c in cuentas}
+        for co in cortes:
+            n_pend = db.query(Gasto).filter(Gasto.corte_id == co.id, Gasto.clasificado == False).count()  # noqa: E712
+            cortes_info.append({
+                "id": co.id, "cuenta": apodo.get(co.cuenta_id), "tipo_contabilidad": co.tipo_contabilidad,
+                "periodo": f"{co.fecha_inicio.isoformat()} a {co.fecha_fin.isoformat()}",
+                "validado": co.validado, "pendientes": n_pend, "fuente_archivo": co.fuente_archivo,
+            })
+
+    # gastos pendientes agrupados por comercio normalizado
+    pendientes = _filtro_cliente_gasto(db.query(Gasto).filter(Gasto.clasificado == False), tipo, cliente_id).all()  # noqa: E712
+    grupos: dict[str, dict] = {}
+    for g in pendientes:
+        clave = normaliza_comercio(g.comercio_raw or "")
+        grp = grupos.get(clave)
+        if grp is None:
+            grp = grupos[clave] = {
+                "clave": clave, "nombre": g.comercio_raw or clave,
+                "categoria_id": g.categoria_id, "n": 0, "total": 0.0, "gasto_ids": [],
+            }
+        grp["n"] += 1
+        grp["total"] += float(g.monto or 0)
+        grp["gasto_ids"].append(g.id)
+        if grp["categoria_id"] is None and g.categoria_id is not None:
+            grp["categoria_id"] = g.categoria_id
+    # nombre bonito desde el diccionario si existe
+    dicc = {c.nombre_normalizado: c for c in db.query(Comercio).filter(Comercio.nombre_normalizado.in_(list(grupos.keys()) or [""])).all()}
+    salida = []
+    for clave, grp in grupos.items():
+        com = dicc.get(clave)
+        salida.append({
+            **grp,
+            "nombre": com.nombre_editado if com else grp["nombre"],
+            "categoria": cats.get(grp["categoria_id"]),
+            "total": round(grp["total"], 2),
+        })
+    salida.sort(key=lambda x: -x["total"])
+    return {"cortes": cortes_info, "grupos": salida}
+
+
+class ClasificarIn(BaseModel):
+    gasto_ids: list[int]
+    nombre_comercio: str
+    categoria_id: Optional[int] = None
+
+
+@app.post("/api/contabilidad/clasificar")
+def clasificar_grupo(body: ClasificarIn, db: Session = Depends(get_db), _=Depends(require_permiso("contabilidad"))):
+    """Confirma la clasificación de un grupo de gastos del mismo comercio:
+    les fija categoría, los marca clasificados, y ENSEÑA al diccionario global
+    (nombre legible + categoría + sube veces_usado) para que la próxima vez la
+    sugerencia salga sola, para cualquier cliente."""
+    if not body.gasto_ids:
+        raise HTTPException(status_code=400, detail="No hay gastos que clasificar.")
+    gastos = db.query(Gasto).filter(Gasto.id.in_(body.gasto_ids)).all()
+    if not gastos:
+        raise HTTPException(status_code=404, detail="Gastos no encontrados.")
+    cat = db.get(CategoriaGasto, body.categoria_id) if body.categoria_id else None
+    if body.categoria_id and not cat:
+        raise HTTPException(status_code=400, detail="categoria_id inválida.")
+
+    clave = normaliza_comercio(gastos[0].comercio_raw or body.nombre_comercio)
+    com = db.query(Comercio).filter(Comercio.nombre_normalizado == clave).first()
+    if com is None:
+        com = Comercio(nombre_normalizado=clave, nombre_editado=body.nombre_comercio.strip() or clave, veces_usado=0)
+        db.add(com)
+        db.flush()
+    else:
+        com.nombre_editado = body.nombre_comercio.strip() or com.nombre_editado
+    if cat:
+        com.categoria_sugerida_id = cat.id
+    com.veces_usado += len(gastos)
+
+    for g in gastos:
+        g.categoria_id = body.categoria_id
+        g.comercio_id = com.id
+        g.clasificado = True
+    db.commit()
+    return {"ok": True, "clasificados": len(gastos), "comercio_id": com.id}
+
+
 @app.post("/api/_reset_saldos_nomina")
 def reset_saldos_nomina(db: Session = Depends(get_db), _=Depends(require_admin)):
     """Pone en $0 el saldo pendiente de comisión de todos los trabajadores,
