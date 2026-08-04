@@ -22,7 +22,17 @@ import drive
 import recibos
 from auth import current_trabajador, require_admin, require_permiso, require_permiso_any, router as auth_router
 from catalogo import ESTATUS_LIBERA_COMISION, SERVICE_TYPES, linea_de
-from contabilidad import CategoriaGasto, ContabilidadMensualHistorica
+from contabilidad import (
+    CategoriaGasto,
+    ContabilidadMensualHistorica,
+    Comercio,
+    CuentaBancaria,
+    CorteEstadoCuenta,
+    Gasto,
+    Ingreso,
+    TipoContabilidad,
+)
+from comercio_parser import normaliza_comercio
 from database import Base, engine, encrypt_ssn, decrypt_ssn, get_db, hash_password
 from models import (
     Archivo,
@@ -1642,7 +1652,7 @@ def eliminar_temporada(temporada_id: int, db: Session = Depends(get_db), _=Depen
 @app.get("/api/contabilidad/categorias")
 def listar_categorias_gasto(db: Session = Depends(get_db), _=Depends(require_permiso("contabilidad"))):
     cats = db.query(CategoriaGasto).order_by(CategoriaGasto.orden).all()
-    return [{"nombre": c.nombre, "es_deducible": c.es_deducible} for c in cats]
+    return [{"id": c.id, "nombre": c.nombre, "es_deducible": c.es_deducible} for c in cats]
 
 
 @app.get("/api/contabilidad/empresas")
@@ -1695,6 +1705,106 @@ def detalle_contabilidad_empresa(
             for f in filas
         ],
     }
+
+
+# ---------- contabilidad: cuentas bancarias del cliente ----------
+
+class CuentaIn(BaseModel):
+    empresa_id: Optional[int] = None
+    persona_id: Optional[int] = None
+    banco: str
+    ultimos4: Optional[str] = None
+    tipo: str  # debito | credito
+    apodo: Optional[str] = None
+
+
+@app.get("/api/contabilidad/cuentas")
+def listar_cuentas(
+    empresa_id: Optional[int] = None, persona_id: Optional[int] = None,
+    db: Session = Depends(get_db), _=Depends(require_permiso("contabilidad")),
+):
+    q = db.query(CuentaBancaria)
+    if empresa_id is not None:
+        q = q.filter(CuentaBancaria.empresa_id == empresa_id)
+    if persona_id is not None:
+        q = q.filter(CuentaBancaria.persona_id == persona_id)
+    return [
+        {"id": c.id, "banco": c.banco, "ultimos4": c.ultimos4, "tipo": c.tipo,
+         "apodo": c.apodo or f"{c.banco} #{c.ultimos4}" if c.ultimos4 else c.banco}
+        for c in q.order_by(CuentaBancaria.banco).all()
+    ]
+
+
+@app.post("/api/contabilidad/cuentas")
+def crear_cuenta(body: CuentaIn, db: Session = Depends(get_db), _=Depends(require_permiso("contabilidad"))):
+    if not body.empresa_id and not body.persona_id:
+        raise HTTPException(status_code=400, detail="Falta el cliente (empresa_id o persona_id).")
+    if body.tipo not in ("debito", "credito"):
+        raise HTTPException(status_code=400, detail="tipo debe ser 'debito' o 'credito'.")
+    c = CuentaBancaria(
+        empresa_id=body.empresa_id, persona_id=body.persona_id, banco=body.banco,
+        ultimos4=body.ultimos4, tipo=body.tipo, apodo=body.apodo,
+    )
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+    return {"id": c.id}
+
+
+# ---------- contabilidad: diccionario de comercios (lo que el sistema ha aprendido) ----------
+
+@app.get("/api/contabilidad/comercios")
+def listar_comercios(
+    q: Optional[str] = None, limite: int = 100,
+    db: Session = Depends(get_db), _=Depends(require_permiso("contabilidad")),
+):
+    """Busca en el diccionario global de comercios aprendidos. Ordena por
+    veces_usado desc (los más frecuentes/confiables primero) — así el
+    encargado ve de un vistazo qué tan entrenado está el sistema."""
+    query = db.query(Comercio)
+    if q:
+        patron = f"%{q.strip()}%"
+        query = query.filter(
+            (Comercio.nombre_editado.ilike(patron)) | (Comercio.nombre_normalizado.ilike(patron))
+        )
+    total = query.count()
+    filas = query.order_by(Comercio.veces_usado.desc()).limit(min(limite, 500)).all()
+    cats = {c.id: c.nombre for c in db.query(CategoriaGasto).all()}
+    return {
+        "total": total,
+        "comercios": [
+            {"id": m.id, "nombre_editado": m.nombre_editado, "nombre_normalizado": m.nombre_normalizado,
+             "categoria": cats.get(m.categoria_sugerida_id), "categoria_id": m.categoria_sugerida_id,
+             "veces_usado": m.veces_usado}
+            for m in filas
+        ],
+    }
+
+
+class ComercioEditIn(BaseModel):
+    nombre_editado: Optional[str] = None
+    categoria_id: Optional[int] = None
+
+
+@app.put("/api/contabilidad/comercios/{comercio_id}")
+def editar_comercio(
+    comercio_id: int, body: ComercioEditIn,
+    db: Session = Depends(get_db), _=Depends(require_permiso("contabilidad")),
+):
+    """Corrige a mano el nombre legible o la categoría sugerida de un comercio
+    aprendido. Editar aquí mejora las sugerencias futuras para TODOS los
+    clientes (el diccionario es global)."""
+    m = db.get(Comercio, comercio_id)
+    if not m:
+        raise HTTPException(status_code=404)
+    if body.nombre_editado is not None:
+        m.nombre_editado = body.nombre_editado.strip()
+    if body.categoria_id is not None:
+        if not db.get(CategoriaGasto, body.categoria_id):
+            raise HTTPException(status_code=400, detail="categoria_id inválida.")
+        m.categoria_sugerida_id = body.categoria_id
+    db.commit()
+    return {"ok": True}
 
 
 @app.post("/api/_reset_saldos_nomina")

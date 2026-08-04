@@ -871,9 +871,16 @@
           <div class="hint">Solo Admin o quien tenga el permiso puede ver esta sección.</div>
         </div>
         <div id="contabilidadContent">
+          <h1 class="page-title">Contabilidad</h1>
+          <div class="subtabs" id="ctbTopTabs">
+            <div class="subtab active" data-ctbtab="historico">Histórico</div>
+            <div class="subtab" data-ctbtab="comercios">Comercios aprendidos</div>
+          </div>
+
+          <!-- ---- Histórico ---- -->
+          <div id="ctbTabHistorico">
           <div id="contabilidadListPanel">
-            <h1 class="page-title">Contabilidad</h1>
-            <p class="page-sub">Histórico de contabilidad mensual importado de Drive, por compañía. Solo aparecen aquí las que tienen al menos un año importado.</p>
+            <p class="page-sub" style="margin-top:0;">Histórico de contabilidad mensual importado de Drive, por compañía. Solo aparecen aquí las que tienen al menos un año importado.</p>
             <div class="panel">
               <div class="field-row">
                 <div class="field"><label>Buscar compañía</label><input type="text" id="ctbBuscar" placeholder="Nombre..."></div>
@@ -910,6 +917,24 @@
                 <table>
                   <thead><tr id="ctbCategoriaHead"><th>Categoría</th></tr></thead>
                   <tbody id="ctbCategoriaBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          </div><!-- /ctbTabHistorico -->
+
+          <!-- ---- Comercios aprendidos ---- -->
+          <div id="ctbTabComercios" style="display:none;">
+            <p class="page-sub" style="margin-top:0;">Diccionario global de comercios que el sistema ha aprendido de todas las contabilidades hechas. Al clasificar un gasto, se sugiere la categoría de aquí. Editar un nombre o categoría mejora las sugerencias para <strong>todos</strong> los clientes. Ordenado por veces usado (los más confiables primero).</p>
+            <div class="panel">
+              <div class="field-row">
+                <div class="field"><label>Buscar comercio</label><input type="text" id="ctbComercioBuscar" placeholder="Ej. Home Depot, Amazon, un nombre..."></div>
+              </div>
+              <p class="hint" id="ctbComerciosResumen" style="margin:6px 0;"></p>
+              <div class="table-wrap" style="margin-top:6px;">
+                <table>
+                  <thead><tr><th>Comercio</th><th>Categoría sugerida</th><th class="num">Veces usado</th><th></th></tr></thead>
+                  <tbody id="ctbComerciosBody"><tr><td colspan="4"><p class="hint" style="padding:14px 0;">Cargando…</p></td></tr></tbody>
                 </table>
               </div>
             </div>
@@ -1609,6 +1634,84 @@
 
   // ---------- contabilidad (histórico importado) ----------
   var MESES_LBL = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+  // subtabs Histórico / Comercios aprendidos
+  document.querySelectorAll("#ctbTopTabs .subtab").forEach(function(tab){
+    tab.addEventListener("click", function(){
+      document.querySelectorAll("#ctbTopTabs .subtab").forEach(function(t){ t.classList.remove("active"); });
+      tab.classList.add("active");
+      var esComercios = tab.dataset.ctbtab === "comercios";
+      document.getElementById("ctbTabHistorico").style.display = esComercios ? "none" : "";
+      document.getElementById("ctbTabComercios").style.display = esComercios ? "" : "none";
+      if (esComercios && !state.comerciosCargadosUnaVez) {
+        state.comerciosCargadosUnaVez = true;
+        cargarCategoriasContabilidad().then(function(){ renderComercios(""); });
+      }
+    });
+  });
+
+  var ctbComercioBuscarTimer = null;
+  function bindComercioBuscador(){
+    var inp = document.getElementById("ctbComercioBuscar");
+    if (!inp || inp._bound) return;
+    inp._bound = true;
+    inp.addEventListener("input", function(){
+      clearTimeout(ctbComercioBuscarTimer);
+      var q = inp.value.trim();
+      ctbComercioBuscarTimer = setTimeout(function(){ renderComercios(q); }, 250);
+    });
+  }
+  function renderComercios(q){
+    bindComercioBuscador();
+    var tbody = document.getElementById("ctbComerciosBody");
+    tbody.innerHTML = '<tr><td colspan="4"><p class="hint" style="padding:14px 0;">Cargando…</p></td></tr>';
+    api("/api/contabilidad/comercios?limite=200&q=" + encodeURIComponent(q || "")).then(function(data){
+      document.getElementById("ctbComerciosResumen").textContent =
+        data.total + " comercio(s)" + (q ? " que coinciden con “" + q + "”" : " en total") +
+        (data.total > data.comercios.length ? " — mostrando los " + data.comercios.length + " más usados" : "");
+      tbody.innerHTML = "";
+      if (!data.comercios.length) {
+        tbody.innerHTML = '<tr><td colspan="4"><p class="hint" style="padding:14px 0;">Sin resultados.</p></td></tr>';
+        return;
+      }
+      data.comercios.forEach(function(m){
+        var tr = el("tr");
+        var tdNombre = el("td");
+        var inpN = el("input"); inpN.type = "text"; inpN.value = m.nombre_editado;
+        inpN.style.cssText = "width:100%; border:1px solid transparent; background:transparent; padding:3px 5px; border-radius:5px; font:inherit; color:inherit;";
+        inpN.addEventListener("focus", function(){ inpN.style.borderColor = "var(--line)"; });
+        inpN.addEventListener("blur", function(){
+          inpN.style.borderColor = "transparent";
+          if (inpN.value.trim() && inpN.value.trim() !== m.nombre_editado) {
+            api("/api/contabilidad/comercios/" + m.id, {method:"PUT", body:{nombre_editado: inpN.value.trim()}})
+              .then(function(){ m.nombre_editado = inpN.value.trim(); })
+              .catch(function(e){ alert("No se pudo guardar: " + e.message); inpN.value = m.nombre_editado; });
+          }
+        });
+        tdNombre.appendChild(inpN);
+
+        var tdCat = el("td");
+        var sel = el("select", "status-select neutral");
+        var vacia = el("option"); vacia.value = ""; vacia.textContent = "— sin categoría —"; sel.appendChild(vacia);
+        (state.contabilidadCategorias || []).forEach(function(c){
+          var o = el("option"); o.value = c.nombre; o.textContent = c.nombre; sel.appendChild(o);
+        });
+        sel.value = m.categoria || "";
+        sel.addEventListener("change", function(){
+          var cat = (state.contabilidadCategorias || []).find(function(c){ return c.nombre === sel.value; });
+          api("/api/contabilidad/comercios/" + m.id, {method:"PUT", body:{categoria_id: cat ? cat.id : null}})
+            .then(function(){ m.categoria = sel.value; })
+            .catch(function(e){ alert("No se pudo guardar: " + e.message); });
+        });
+        tdCat.appendChild(sel);
+
+        var tdVeces = el("td", "num", String(m.veces_usado));
+        var tdNorm = el("td"); tdNorm.style.cssText = "font-size:11px; color:var(--muted);"; tdNorm.textContent = m.nombre_normalizado;
+        [tdNombre, tdCat, tdVeces, tdNorm].forEach(function(td){ tr.appendChild(td); });
+        tbody.appendChild(tr);
+      });
+    }).catch(function(e){ if (e.message !== "no-auth") console.error(e); });
+  }
 
   function renderContabilidadEmpresas(){
     document.getElementById("contabilidadDetallePanel").style.display = "none";
