@@ -656,18 +656,25 @@ def buscar_cualquier_cliente(q: str = "", db: Session = Depends(get_db), _=Depen
     """Búsqueda SIN filtrar por 'mis clientes' — para poder asignar un servicio nuevo a
     un cliente que ya existe pero que atendió alguien más (ej. un referido interno).
     Devuelve solo nombre/tipo/id, no datos sensibles."""
+    def _fold(s: str) -> str:
+        s = unicodedata.normalize("NFKD", (s or "").lower())
+        return "".join(c for c in s if not unicodedata.combining(c))
+
+    palabras = [w for w in _fold(q).split() if w]  # ignora acentos; todas las palabras deben aparecer
+
+    def coincide(nombre: str) -> bool:
+        if not palabras:
+            return True
+        n = _fold(nombre)
+        return all(w in n for w in palabras)
+
     out = []
-    ql = q.lower().strip()
-    personas = db.query(Persona).all()
-    empresas = db.query(Empresa).all()
-    for p in personas:
-        if ql and ql not in p.nombre.lower():
-            continue
-        out.append({"tipo": "persona", "id": p.id, "nombre": p.nombre, "tiene_ssn": bool(p.ssn_last4)})
-    for e in empresas:
-        if ql and ql not in e.nombre.lower():
-            continue
-        out.append({"tipo": "empresa", "id": e.id, "nombre": e.nombre, "tiene_ssn": False})
+    for p in db.query(Persona).all():
+        if coincide(p.nombre):
+            out.append({"tipo": "persona", "id": p.id, "nombre": p.nombre, "tiene_ssn": bool(p.ssn_last4)})
+    for e in db.query(Empresa).all():
+        if coincide(e.nombre):
+            out.append({"tipo": "empresa", "id": e.id, "nombre": e.nombre, "tiene_ssn": False})
     return sorted(out, key=lambda x: x["nombre"])[:500]
 
 

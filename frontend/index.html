@@ -3140,19 +3140,20 @@
   // ---- nuevo/editar servicio: buscador de cliente ----
   var svcBuscarTimer = null;
   function fillClienteSelect(hidden, selectedKey){
-    return api("/api/clientes/buscar").then(function(lista){
-      state.svcClientesCache = lista;
-      var byKey = {};
-      lista.forEach(function(c){ byKey[c.tipo + ":" + c.id] = c; });
-      var inp = document.getElementById("svcClienteBuscar");
-      document.getElementById("svcClienteResults").innerHTML = "";
-      if (selectedKey && byKey[selectedKey]) {
-        var c = byKey[selectedKey];
-        hidden.value = selectedKey; inp.value = c.nombre; state.clienteTieneSSN = !!c.tiene_ssn;
-      } else {
-        hidden.value = ""; inp.value = ""; state.clienteTieneSSN = false;
-      }
-    });
+    var inp = document.getElementById("svcClienteBuscar");
+    document.getElementById("svcClienteResults").innerHTML = "";
+    if (!selectedKey) { hidden.value = ""; inp.value = ""; state.clienteTieneSSN = false; return Promise.resolve(); }
+    // precarga el nombre del cliente elegido (perfil o edición) directo del servidor,
+    // sin depender de una lista cacheada — así funciona con cualquier cliente
+    var parts = selectedKey.split(":"), tipo = parts[0], id = parts[1];
+    var pre = state.currentProfileData;  // si venimos del perfil, ya tenemos el nombre
+    if (pre && (pre.tipo === tipo) && (String(pre.id) === String(id))) {
+      hidden.value = selectedKey; inp.value = pre.nombre; state.clienteTieneSSN = !!pre.ssn_last4;
+      return Promise.resolve();
+    }
+    return api("/api/clientes/" + tipo + "/" + id).then(function(c){
+      hidden.value = selectedKey; inp.value = c.nombre; state.clienteTieneSSN = !!c.ssn_last4;
+    }).catch(function(){ hidden.value = selectedKey; });
   }
   function actualizarClienteTieneSSN(){ /* se mantiene en state.clienteTieneSSN al elegir */ }
   function abrirNuevoClienteDesdeServicio(){
@@ -3180,33 +3181,38 @@
     inp.addEventListener("focus", renderSvcClienteResultados);
   })();
   function renderSvcClienteResultados(){
-    var cont = document.getElementById("svcClienteResults");
-    var q = document.getElementById("svcClienteBuscar").value.trim().toLowerCase();
-    var lista = state.svcClientesCache || [];
-    var filtrada = q ? lista.filter(function(c){ return c.nombre.toLowerCase().indexOf(q) > -1; }) : lista.slice(0, 30);
-    cont.innerHTML = "";
-    var box = el("div");
-    box.style.cssText = "position:absolute; z-index:30; background:var(--card,#fff); border:1px solid var(--line); border-radius:8px; max-height:240px; overflow:auto; width:100%; box-shadow:0 6px 20px rgba(0,0,0,.14);";
-    var nuevo = el("div", null, "➕ Crear nuevo cliente…");
-    nuevo.style.cssText = "padding:9px 11px; cursor:pointer; font-weight:600; border-bottom:1px solid var(--line);";
-    nuevo.addEventListener("mousedown", function(e){ e.preventDefault(); cont.innerHTML=""; abrirNuevoClienteDesdeServicio(); });
-    box.appendChild(nuevo);
-    filtrada.slice(0, 40).forEach(function(c){
-      var row = el("div", null, c.nombre + (c.tipo === "empresa" ? ' <span class="hint">(empresa)</span>' : ''));
-      row.style.cssText = "padding:8px 11px; cursor:pointer;";
-      row.addEventListener("mouseenter", function(){ row.style.background = "var(--sidebar-hover,rgba(0,0,0,.05))"; });
-      row.addEventListener("mouseleave", function(){ row.style.background = ""; });
-      row.addEventListener("mousedown", function(e){
-        e.preventDefault();
-        document.getElementById("svcCliente").value = c.tipo + ":" + c.id;
-        document.getElementById("svcClienteBuscar").value = c.nombre;
-        state.clienteTieneSSN = !!c.tiene_ssn;
-        cont.innerHTML = "";
-        actualizarVisibilidadSSN();
+    var q = document.getElementById("svcClienteBuscar").value.trim();
+    // consulta al servidor (busca en TODOS los clientes, no solo los primeros 500)
+    api("/api/clientes/buscar?q=" + encodeURIComponent(q)).then(function(lista){
+      var cont = document.getElementById("svcClienteResults");
+      cont.innerHTML = "";
+      var box = el("div");
+      box.style.cssText = "position:absolute; z-index:30; background:var(--card,#fff); border:1px solid var(--line); border-radius:8px; max-height:240px; overflow:auto; width:100%; box-shadow:0 6px 20px rgba(0,0,0,.14);";
+      var nuevo = el("div", null, "➕ Crear nuevo cliente…");
+      nuevo.style.cssText = "padding:9px 11px; cursor:pointer; font-weight:600; border-bottom:1px solid var(--line);";
+      nuevo.addEventListener("mousedown", function(e){ e.preventDefault(); cont.innerHTML=""; abrirNuevoClienteDesdeServicio(); });
+      box.appendChild(nuevo);
+      if (!lista.length) {
+        var vacio = el("div", "hint", q ? "Sin clientes que coincidan." : "Escribe para buscar."); vacio.style.cssText = "padding:8px 11px;";
+        box.appendChild(vacio);
+      }
+      lista.slice(0, 40).forEach(function(c){
+        var row = el("div", null, c.nombre + (c.tipo === "empresa" ? ' <span class="hint">(empresa)</span>' : ''));
+        row.style.cssText = "padding:8px 11px; cursor:pointer;";
+        row.addEventListener("mouseenter", function(){ row.style.background = "var(--sidebar-hover,rgba(0,0,0,.05))"; });
+        row.addEventListener("mouseleave", function(){ row.style.background = ""; });
+        row.addEventListener("mousedown", function(e){
+          e.preventDefault();
+          document.getElementById("svcCliente").value = c.tipo + ":" + c.id;
+          document.getElementById("svcClienteBuscar").value = c.nombre;
+          state.clienteTieneSSN = !!c.tiene_ssn;
+          cont.innerHTML = "";
+          actualizarVisibilidadSSN();
+        });
+        box.appendChild(row);
       });
-      box.appendChild(row);
-    });
-    cont.appendChild(box);
+      cont.appendChild(box);
+    }).catch(function(e){ if (e.message !== "no-auth") console.error(e); });
   }
   document.addEventListener("click", function(e){
     var wrap = document.getElementById("svcClienteResults");
