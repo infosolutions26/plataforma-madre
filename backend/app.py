@@ -101,6 +101,14 @@ def health():
     return {"ok": True}
 
 
+@app.get("/api/contabilidad/estado-ocr")
+def estado_ocr():
+    """Diagnóstico público: dice solo SI el servidor tiene configurada la
+    GEMINI_API_KEY (booleano, nunca el valor), para poder confirmar desde el
+    navegador que la variable de entorno quedó bien puesta en Render."""
+    return {"gemini_configurado": ocr_estados.gemini_disponible()}
+
+
 class SetPasswordIn(BaseModel):
     correo: str
     password: str
