@@ -34,6 +34,7 @@ from contabilidad import (
 )
 from comercio_parser import normaliza_comercio
 import ocr_estados
+import docgen
 from database import Base, engine, encrypt_ssn, decrypt_ssn, get_db, hash_password
 from models import (
     Archivo,
@@ -2211,6 +2212,62 @@ def armar_entregable(
             "gastos_deducibles": round(sum(m["gastos_deducibles"] for m in tabla_mensual), 2),
         },
     }
+
+
+class BloqueEntregable(BaseModel):
+    tipo: str  # grafica | tabla
+    titulo: str
+    subtitulo: Optional[str] = None
+    png: Optional[str] = None          # grafica: PNG en base64
+    columnas: Optional[list[str]] = None  # tabla
+    filas: Optional[list[list[str]]] = None
+
+
+class GenerarEntregableIn(BaseModel):
+    tipo: str
+    cliente_id: int
+    notas: str = ""
+    bloques: list[BloqueEntregable]
+
+
+CLAVE_PLANTILLA = "plantilla_contabilidad_doc_id"
+
+
+@app.post("/api/contabilidad/entregable/generar")
+def generar_entregable_endpoint(body: GenerarEntregableIn, db: Session = Depends(get_db), _=Depends(require_permiso("contabilidad"))):
+    """Genera el entregable como Google Doc a partir de la plantilla de membrete,
+    con las tablas/gráficas/notas seleccionadas. Devuelve el link del Doc creado."""
+    cfg = db.get(Configuracion, CLAVE_PLANTILLA)
+    plantilla_id = (cfg.valor if cfg else "").strip()
+    if not plantilla_id:
+        raise HTTPException(status_code=400, detail="Falta configurar la plantilla del membrete (id del Google Doc). Un admin la pone en Configuración.")
+    if not drive.disponible():
+        raise HTTPException(status_code=503, detail="Drive no está configurado en el servidor.")
+
+    modelo = Empresa if body.tipo == "empresa" else Persona
+    cliente = db.get(modelo, body.cliente_id)
+    if not cliente:
+        raise HTTPException(status_code=404)
+
+    # carpeta del cliente en Drive (créala si no tiene)
+    carpeta_id = cliente.drive_folder_id
+    try:
+        if not carpeta_id:
+            carpeta_id = drive.crear_carpeta_cliente(cliente.nombre, getattr(cliente, "ssn_last4", None))
+            cliente.drive_folder_id = carpeta_id
+            db.commit()
+    except Exception:  # noqa: BLE001 — si falla la carpeta, igual generamos en la raíz
+        carpeta_id = None
+
+    bloques = [b.model_dump() for b in body.bloques]
+    try:
+        f = docgen.generar_entregable_gdoc(
+            plantilla_doc_id=plantilla_id, nombre_cliente=cliente.nombre,
+            periodo="", bloques=bloques, notas=body.notas, carpeta_id=carpeta_id,
+        )
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Error generando el documento: {e}")
+    return {"ok": True, "url": f.get("webViewLink"), "id": f.get("id")}
 
 
 @app.post("/api/_reset_saldos_nomina")

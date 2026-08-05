@@ -887,7 +887,7 @@
 
           <!-- ---- Armar entregable ---- -->
           <div id="ctbTabEntregable" style="display:none;">
-            <p class="page-sub" style="margin-top:0;">Elige un cliente y el sistema arma todas las tablas del entregable con lo que ya está clasificado. Copia cada tabla con su botón y pégala en tu plantilla de Google Docs. Las notas las escribes tú a mano.</p>
+            <p class="page-sub" style="margin-top:0;">El sistema arma las tablas y gráficas del entregable con lo clasificado. Quita renglones, elimina tablas/gráficas o desmárcalas para que no salgan. Escribe las notas y genera el Google Doc con tu membrete.</p>
             <div class="panel">
               <div class="field-row">
                 <div class="field">
@@ -901,7 +901,18 @@
                 </div>
               </div>
             </div>
-            <div id="ctbEntTablas"></div>
+            <div id="ctbEntBloques"></div>
+            <!-- notas + generar -->
+            <div class="panel" id="ctbEntFinal" style="display:none;">
+              <h2>Notas del entregable</h2>
+              <p class="hint" style="margin:-4px 0 8px;">Van al final del documento, tal cual las escribas.</p>
+              <textarea id="ctbEntNotas" rows="5" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; font:inherit; color:inherit; background:transparent; resize:vertical;" placeholder="Escribe aquí tus observaciones y recomendaciones para el cliente…"></textarea>
+              <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px;">
+                <button class="btn primary" id="ctbEntGenerar" type="button">Generar entregable (Google Doc)</button>
+                <a id="ctbEntLink" href="#" target="_blank" style="display:none; font-weight:600; text-decoration:underline;">Abrir entregable ↗</a>
+                <span class="hint" id="ctbEntGenEstado" style="flex:1; min-width:200px;"></span>
+              </div>
+            </div>
           </div>
 
           <!-- ---- Cargar y clasificar (pipeline de 3 pasos) ---- -->
@@ -1562,7 +1573,9 @@
     contabilidadAnio: null,
     pipeCliente: null,           // {tipo, id, nombre} elegido para cargar/clasificar
     pipeBuscarTimer: null,
-    pipeClasifData: null
+    pipeClasifData: null,
+    entData: null,
+    entBloques: []
   };
 
   function money(n){ return "$" + Number(n||0).toLocaleString("en-US"); }
@@ -1848,6 +1861,59 @@
       var q = inp.value.trim();
       entBuscarTimer = setTimeout(function(){ buscarClienteEnt(q); }, 250);
     });
+    document.getElementById("ctbEntGenerar").addEventListener("click", generarEntregable);
+  }
+
+  // rasteriza un SVG (string) a PNG dataURL, para insertarlo como imagen en el Doc
+  function svgToPng(svgStr, scale){
+    scale = scale || 2;
+    return new Promise(function(resolve, reject){
+      var m = svgStr.match(/viewBox="0 0 (\d+) (\d+)"/);
+      var w = m ? +m[1] : 580, h = m ? +m[2] : 300;
+      var img = new Image();
+      var blob = new Blob([svgStr], {type:"image/svg+xml;charset=utf-8"});
+      var url = URL.createObjectURL(blob);
+      img.onload = function(){
+        var cv = document.createElement("canvas"); cv.width = w*scale; cv.height = h*scale;
+        var cx = cv.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0,0,cv.width,cv.height);
+        cx.drawImage(img, 0, 0, cv.width, cv.height);
+        URL.revokeObjectURL(url);
+        resolve(cv.toDataURL("image/png").split(",")[1]);  // solo el base64
+      };
+      img.onerror = function(e){ URL.revokeObjectURL(url); reject(new Error("no se pudo rasterizar la gráfica")); };
+      img.src = url;
+    });
+  }
+
+  function generarEntregable(){
+    if (!entCliente) return;
+    var incluidos = (state.entBloques||[]).filter(function(b){ return b.incluido; });
+    if (!incluidos.length){ alert("No hay nada seleccionado para el entregable."); return; }
+    var btn = document.getElementById("ctbEntGenerar");
+    var estado = document.getElementById("ctbEntGenEstado");
+    var link = document.getElementById("ctbEntLink");
+    btn.disabled = true; link.style.display = "none"; estado.textContent = "Preparando gráficas…";
+    // rasterizar las gráficas incluidas
+    var proms = incluidos.map(function(b){
+      if (b.tipo === "grafica") return svgToPng(b.svg).then(function(png){ return {tipo:"grafica", titulo:b.titulo, png:png}; });
+      return Promise.resolve({tipo:"tabla", titulo:b.titulo, subtitulo:b.subtitulo||"",
+        columnas: b.columnas.map(function(c){return c.label;}),
+        filas: b.filas.map(function(f){ return b.columnas.map(function(c){ return String(f[c.key]===undefined?"":f[c.key]); }); })});
+    });
+    Promise.all(proms).then(function(bloques){
+      estado.textContent = "Generando el Google Doc con tu membrete… (unos segundos)";
+      return api("/api/contabilidad/entregable/generar", {method:"POST", body:{
+        tipo: entCliente.tipo, cliente_id: entCliente.id,
+        notas: document.getElementById("ctbEntNotas").value,
+        bloques: bloques,
+      }});
+    }).then(function(r){
+      estado.textContent = "Listo — el entregable quedó en el Drive del cliente.";
+      link.href = r.url; link.style.display = "";
+    }).catch(function(e){
+      estado.textContent = "";
+      alert("No se pudo generar: " + e.message);
+    }).then(function(){ btn.disabled = false; });
   }
   function buscarClienteEnt(q){
     var cont = document.getElementById("ctbEntClienteResultados");
@@ -1875,95 +1941,149 @@
   }
 
   function money2(n){ return "$" + Number(n||0).toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2}); }
+  function shortMoney(v){ v=Number(v)||0; if(Math.abs(v)>=1000000) return "$"+(v/1000000).toFixed(1)+"M"; if(Math.abs(v)>=1000) return "$"+Math.round(v/1000)+"k"; return "$"+Math.round(v); }
 
-  // construye una tabla con encabezado "Copiar" que copia el <table> con formato a Google Docs
-  function tablaEntregable(titulo, columnas, filas, subtitulo){
-    var wrap = el("div", "panel");
-    var head = el("div", "h2row");
-    var h = el("h2", null, titulo);
-    var btn = el("button", "btn small", "Copiar tabla"); btn.type = "button";
-    head.appendChild(h); head.appendChild(btn);
-    wrap.appendChild(head);
-    if (subtitulo) { var s = el("p", "hint"); s.style.margin = "-4px 0 8px"; s.textContent = subtitulo; wrap.appendChild(s); }
-    var tw = el("div", "table-wrap");
-    var table = el("table");
-    var thead = el("thead"), htr = el("tr");
-    columnas.forEach(function(c){ var th = el("th", c.num ? "num" : null, c.label); htr.appendChild(th); });
-    thead.appendChild(htr); table.appendChild(thead);
-    var tbody = el("tbody");
-    if (!filas.length) {
-      var tr0 = el("tr"); var td0 = el("td", null, "Sin datos."); td0.colSpan = columnas.length; tr0.appendChild(td0); tbody.appendChild(tr0);
-    }
-    filas.forEach(function(f){
-      var tr = el("tr");
-      columnas.forEach(function(c){ tr.appendChild(el("td", c.num ? "num" : null, f[c.key])); });
-      tbody.appendChild(tr);
+  var ENT_COLORS = ["#2b56c9","#e5484d","#2ea043","#f59e0b","#8b5cf6","#0891b2","#db2777","#65a30d","#9333ea","#0d9488","#c2410c","#4f46e5","#0369a1","#a16207","#be123c","#15803d"];
+
+  // ---- gráficas SVG (sin librería, para verlas en pantalla y rasterizar al Doc) ----
+  function barChartSVG(cats, series){
+    var W=580,H=300,pl=58,pr=14,pt=18,pb=52, iw=W-pl-pr, ih=H-pt-pb;
+    var maxV=0; series.forEach(function(s){ s.valores.forEach(function(v){ if(v>maxV) maxV=v; }); });
+    if(maxV<=0) maxV=1;
+    var stepP=Math.pow(10,Math.floor(Math.log10(maxV))); var niceMax=Math.ceil(maxV/stepP)*stepP;
+    var s='<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:Arial,sans-serif;background:#fff;">';
+    for(var i=0;i<=4;i++){ var y=pt+ih*(1-i/4); var val=niceMax*i/4;
+      s+='<line x1="'+pl+'" y1="'+y+'" x2="'+(W-pr)+'" y2="'+y+'" stroke="#e3e7ee"/>';
+      s+='<text x="'+(pl-6)+'" y="'+(y+4)+'" text-anchor="end" font-size="10" fill="#8a93a6">'+shortMoney(val)+'</text>'; }
+    var n=cats.length||1, gw=iw/n, bw=Math.min(26,(gw*0.7)/series.length);
+    cats.forEach(function(cat,ci){ var gx=pl+gw*ci+gw/2;
+      series.forEach(function(sr,si){ var v=sr.valores[ci]||0; var bh=ih*(v/niceMax);
+        var bx=gx-(series.length*bw)/2+si*bw;
+        s+='<rect x="'+bx.toFixed(1)+'" y="'+(pt+ih-bh).toFixed(1)+'" width="'+(bw-2).toFixed(1)+'" height="'+bh.toFixed(1)+'" fill="'+sr.color+'" rx="2"/>'; });
+      s+='<text x="'+gx.toFixed(1)+'" y="'+(H-pb+16)+'" text-anchor="middle" font-size="10" fill="#5b6473">'+cat+'</text>'; });
+    // leyenda
+    var lx=pl; series.forEach(function(sr){ s+='<rect x="'+lx+'" y="'+(H-18)+'" width="11" height="11" fill="'+sr.color+'" rx="2"/>';
+      s+='<text x="'+(lx+16)+'" y="'+(H-9)+'" font-size="11" fill="#333">'+sr.nombre+'</text>'; lx+=16+sr.nombre.length*6.5+18; });
+    return s+'</svg>';
+  }
+  function pieChartSVG(slices){
+    var total=slices.reduce(function(a,x){return a+x.value;},0)||1;
+    var W=520,H=300,cx=140,cy=150,r=110,ir=60, s='<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:Arial,sans-serif;background:#fff;">';
+    var ang=-Math.PI/2;
+    slices.forEach(function(sl){ var frac=sl.value/total; var a2=ang+frac*2*Math.PI; var large=frac>0.5?1:0;
+      var x1=cx+r*Math.cos(ang),y1=cy+r*Math.sin(ang),x2=cx+r*Math.cos(a2),y2=cy+r*Math.sin(a2);
+      var xi1=cx+ir*Math.cos(a2),yi1=cy+ir*Math.sin(a2),xi2=cx+ir*Math.cos(ang),yi2=cy+ir*Math.sin(ang);
+      if(frac>0.0001) s+='<path d="M'+x1.toFixed(1)+' '+y1.toFixed(1)+' A'+r+' '+r+' 0 '+large+' 1 '+x2.toFixed(1)+' '+y2.toFixed(1)+' L'+xi1.toFixed(1)+' '+yi1.toFixed(1)+' A'+ir+' '+ir+' 0 '+large+' 0 '+xi2.toFixed(1)+' '+yi2.toFixed(1)+' Z" fill="'+sl.color+'"/>';
+      ang=a2; });
+    var ly=40; slices.forEach(function(sl){ var pct=(sl.value/total*100).toFixed(1);
+      s+='<rect x="290" y="'+ly+'" width="12" height="12" fill="'+sl.color+'" rx="2"/>';
+      s+='<text x="308" y="'+(ly+10)+'" font-size="11" fill="#333">'+sl.label+' — '+pct+'%</text>'; ly+=22; });
+    return s+'</svg>';
+  }
+
+  // ---- bloques del entregable (gráfica o tabla), editables/eliminables ----
+  function renderEntBloques(){
+    var cont = document.getElementById("ctbEntBloques");
+    cont.innerHTML = "";
+    (state.entBloques||[]).forEach(function(b, idx){
+      var wrap = el("div", "panel");
+      if (!b.incluido) wrap.style.opacity = "0.5";
+      var head = el("div", "h2row");
+      var h = el("h2", null, b.titulo);
+      var ctrls = el("div"); ctrls.style.cssText = "display:flex; gap:12px; align-items:center;";
+      var lblInc = el("label"); lblInc.style.cssText = "display:flex; gap:5px; align-items:center; font-size:12px; cursor:pointer;";
+      var chk = el("input"); chk.type = "checkbox"; chk.checked = b.incluido;
+      chk.addEventListener("change", function(){ b.incluido = chk.checked; wrap.style.opacity = chk.checked ? "1" : "0.5"; });
+      lblInc.appendChild(chk); lblInc.appendChild(document.createTextNode("Incluir"));
+      var del = el("button", "icon-btn", "✕"); del.type = "button"; del.title = "Eliminar del entregable";
+      del.addEventListener("click", function(){ state.entBloques.splice(idx,1); renderEntBloques(); });
+      ctrls.appendChild(lblInc); ctrls.appendChild(del);
+      head.appendChild(h); head.appendChild(ctrls);
+      wrap.appendChild(head);
+      if (b.subtitulo){ var st=el("p","hint"); st.style.margin="-4px 0 8px"; st.textContent=b.subtitulo; wrap.appendChild(st); }
+
+      if (b.tipo === "grafica"){
+        var box = el("div"); box.style.cssText = "max-width:600px;"; box.innerHTML = b.svg; wrap.appendChild(box);
+      } else {
+        var tw = el("div","table-wrap");
+        var table = el("table");
+        var thead=el("thead"), htr=el("tr");
+        b.columnas.forEach(function(c){ htr.appendChild(el("th", c.num?"num":null, c.label)); });
+        htr.appendChild(el("th")); // columna del botón quitar
+        thead.appendChild(htr); table.appendChild(thead);
+        var tbody=el("tbody");
+        b.filas.forEach(function(f, fi){
+          var tr=el("tr");
+          b.columnas.forEach(function(c){ tr.appendChild(el("td", c.num?"num":null, f[c.key])); });
+          var tdx=el("td");
+          if (!f._total){ var bx=el("button","icon-btn","✕"); bx.type="button"; bx.title="Quitar renglón";
+            bx.addEventListener("click", function(){ b.filas.splice(fi,1); renderEntBloques(); }); tdx.appendChild(bx); }
+          tr.appendChild(tdx);
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody); tw.appendChild(table); wrap.appendChild(tw);
+      }
+      cont.appendChild(wrap);
     });
-    table.appendChild(tbody);
-    tw.appendChild(table); wrap.appendChild(tw);
-    btn.addEventListener("click", function(){
-      var rng = document.createRange(); rng.selectNode(table);
-      var selc = window.getSelection(); selc.removeAllRanges(); selc.addRange(rng);
-      try { document.execCommand("copy"); btn.textContent = "✓ Copiada"; setTimeout(function(){ btn.textContent = "Copiar tabla"; }, 1500); }
-      catch (e) { btn.textContent = "No se pudo"; }
-      selc.removeAllRanges();
-    });
-    return wrap;
   }
 
   function cargarEntregable(){
     if (!entCliente) return;
-    var cont = document.getElementById("ctbEntTablas");
-    cont.innerHTML = '<div class="panel"><p class="hint" style="padding:14px 0;">Armando tablas…</p></div>';
+    var cont = document.getElementById("ctbEntBloques");
+    cont.innerHTML = '<div class="panel"><p class="hint" style="padding:14px 0;">Armando tablas y gráficas…</p></div>';
+    document.getElementById("ctbEntFinal").style.display = "none";
     api("/api/contabilidad/entregable/" + entCliente.tipo + "/" + entCliente.id).then(function(d){
-      cont.innerHTML = "";
       if (d.vacio) {
         cont.innerHTML = '<div class="panel"><p class="hint" style="padding:14px 0;">Este cliente todavía no tiene gastos clasificados. Sube y clasifica sus estados de cuenta primero (pestaña "Cargar y clasificar").</p></div>';
         return;
       }
-      // 1. tabla mensual
-      cont.appendChild(tablaEntregable(
-        "Depósitos y gastos por mes",
-        [{key:"periodo",label:"Mes"},{key:"dep",label:"Depósitos",num:true},{key:"ded",label:"Gastos deducibles",num:true},{key:"tot",label:"Gastos totales",num:true}],
-        d.tabla_mensual.map(function(m){ return {periodo: m.mes_nombre + " " + m.anio, dep: money2(m.depositos), ded: money2(m.gastos_deducibles), tot: money2(m.gastos_totales)}; })
-          .concat([{periodo:"TOTAL", dep: money2(d.totales.depositos), ded: money2(d.totales.gastos_deducibles), tot: money2(d.totales.gastos_totales)}])
-      ));
-      // 2. gastos por categoría
-      cont.appendChild(tablaEntregable(
-        "Gastos por categoría",
-        [{key:"cat",label:"Categoría"},{key:"total",label:"Total",num:true},{key:"pct",label:"Porcentaje",num:true}],
-        d.gastos_por_categoria.map(function(c){ return {cat:c.categoria, total:money2(c.total), pct:c.porcentaje.toFixed(1)+"%"}; })
-      ));
-      // 3. pago a colaboradores (Contract Labor)
-      cont.appendChild(tablaEntregable(
-        "Pago a colaboradores (Contract Labor)",
-        [{key:"nombre",label:"Nombre"},{key:"total",label:"Monto",num:true}],
-        d.pago_colaboradores.map(function(c){ return {nombre:c.nombre, total:money2(c.total)}; }),
-        "Agrupado automáticamente de la categoría Contract Labor."
-      ));
-      // 4. top comercios por frecuencia
-      cont.appendChild(tablaEntregable(
-        "Top 10 comercios por frecuencia",
-        [{key:"nombre",label:"Comercio"},{key:"veces",label:"Veces",num:true},{key:"total",label:"Total",num:true}],
-        d.top_frecuencia.map(function(c){ return {nombre:c.nombre, veces:String(c.veces), total:money2(c.total)}; }),
-        "Excluye Contract Labor, Personal y Savings. Borra en tu documento los que no quieras mostrar."
-      ));
-      // 5. top comercios por monto
-      cont.appendChild(tablaEntregable(
-        "Top 10 comercios por monto",
-        [{key:"nombre",label:"Comercio"},{key:"total",label:"Total",num:true},{key:"veces",label:"Veces",num:true}],
-        d.top_monto.map(function(c){ return {nombre:c.nombre, total:money2(c.total), veces:String(c.veces)}; }),
-        "Excluye Contract Labor, Personal y Savings."
-      ));
-      // 6. histórico años anteriores
-      if (d.historico && d.historico.length) {
-        cont.appendChild(tablaEntregable(
-          "Histórico de años anteriores",
-          [{key:"anio",label:"Año"},{key:"ing",label:"Ingresos",num:true},{key:"gasto",label:"Gastos",num:true}],
-          d.historico.map(function(h){ return {anio:String(h.anio), ing:money2(h.ingreso_total), gasto:money2(h.gasto_total)}; }),
-          "Para comparar contra periodos anteriores del mismo cliente."
-        ));
+      state.entData = d;
+      var bloques = [];
+      // GRÁFICA 1: depósitos vs gastos por mes
+      if (d.tabla_mensual.length){
+        var cats = d.tabla_mensual.map(function(m){ return m.mes_nombre.slice(0,3)+" "+String(m.anio).slice(2); });
+        bloques.push({tipo:"grafica", titulo:"Gráfica: Depósitos vs Gastos por mes", incluido:true,
+          svg: barChartSVG(cats, [
+            {nombre:"Depósitos", color:"#2ea043", valores: d.tabla_mensual.map(function(m){return m.depositos;})},
+            {nombre:"Gastos", color:"#e5484d", valores: d.tabla_mensual.map(function(m){return m.gastos_totales;})},
+          ])});
       }
+      // GRÁFICA 2: distribución de gastos por categoría (deducibles con monto)
+      var catSlices = d.gastos_por_categoria.filter(function(c){ return c.total>0; })
+        .map(function(c,i){ return {label:c.categoria, value:c.total, color:ENT_COLORS[i%ENT_COLORS.length]}; });
+      if (catSlices.length){
+        bloques.push({tipo:"grafica", titulo:"Gráfica: Distribución de gastos por categoría", incluido:true, svg: pieChartSVG(catSlices)});
+      }
+      // TABLA mensual
+      bloques.push({tipo:"tabla", titulo:"Depósitos y gastos por mes", incluido:true,
+        columnas:[{key:"periodo",label:"Mes"},{key:"dep",label:"Depósitos",num:true},{key:"ded",label:"Gastos deducibles",num:true},{key:"tot",label:"Gastos totales",num:true}],
+        filas: d.tabla_mensual.map(function(m){ return {periodo:m.mes_nombre+" "+m.anio, dep:money2(m.depositos), ded:money2(m.gastos_deducibles), tot:money2(m.gastos_totales)}; })
+          .concat([{periodo:"TOTAL", dep:money2(d.totales.depositos), ded:money2(d.totales.gastos_deducibles), tot:money2(d.totales.gastos_totales), _total:true}])});
+      // TABLA categorías
+      bloques.push({tipo:"tabla", titulo:"Gastos por categoría", incluido:true,
+        columnas:[{key:"cat",label:"Categoría"},{key:"total",label:"Total",num:true},{key:"pct",label:"Porcentaje",num:true}],
+        filas: d.gastos_por_categoria.map(function(c){ return {cat:c.categoria, total:money2(c.total), pct:c.porcentaje.toFixed(1)+"%"}; })});
+      // TABLA pago a colaboradores
+      bloques.push({tipo:"tabla", titulo:"Pago a colaboradores (Contract Labor)", incluido:true, subtitulo:"Agrupado automáticamente de la categoría Contract Labor.",
+        columnas:[{key:"nombre",label:"Nombre"},{key:"total",label:"Monto",num:true}],
+        filas: d.pago_colaboradores.map(function(c){ return {nombre:c.nombre, total:money2(c.total)}; })});
+      // TABLA top frecuencia
+      bloques.push({tipo:"tabla", titulo:"Top 10 comercios por frecuencia", incluido:true, subtitulo:"Excluye Contract Labor, Personal y Savings.",
+        columnas:[{key:"nombre",label:"Comercio"},{key:"veces",label:"Veces",num:true},{key:"total",label:"Total",num:true}],
+        filas: d.top_frecuencia.map(function(c){ return {nombre:c.nombre, veces:String(c.veces), total:money2(c.total)}; })});
+      // TABLA top monto
+      bloques.push({tipo:"tabla", titulo:"Top 10 comercios por monto", incluido:true, subtitulo:"Excluye Contract Labor, Personal y Savings.",
+        columnas:[{key:"nombre",label:"Comercio"},{key:"total",label:"Total",num:true},{key:"veces",label:"Veces",num:true}],
+        filas: d.top_monto.map(function(c){ return {nombre:c.nombre, total:money2(c.total), veces:String(c.veces)}; })});
+      // TABLA histórico (si hay)
+      if (d.historico && d.historico.length){
+        bloques.push({tipo:"tabla", titulo:"Comparativo de años anteriores", incluido:true, subtitulo:"Totales por año del cliente.",
+          columnas:[{key:"anio",label:"Año"},{key:"ing",label:"Ingresos",num:true},{key:"gasto",label:"Gastos",num:true}],
+          filas: d.historico.map(function(h){ return {anio:String(h.anio), ing:money2(h.ingreso_total), gasto:money2(h.gasto_total)}; })});
+      }
+      state.entBloques = bloques;
+      renderEntBloques();
+      document.getElementById("ctbEntFinal").style.display = "";
     }).catch(function(e){ if (e.message !== "no-auth") console.error(e); });
   }
 
