@@ -1014,6 +1014,17 @@
             <h1 class="page-title" id="ctbEmpresaNombre">—</h1>
             <p class="page-sub" id="ctbEmpresaGiro"></p>
 
+            <div class="panel" id="ctbComparativoPanel" style="display:none;">
+              <h2>Comparativo por año</h2>
+              <p class="hint" style="margin:-4px 0 8px;">Totales de ingresos y gastos deducibles de cada año.</p>
+              <div class="table-wrap" style="margin-top:6px;">
+                <table>
+                  <thead><tr><th>Año</th><th class="num">Ingresos</th><th class="num">Gastos deducibles</th><th class="num">Diferencia</th></tr></thead>
+                  <tbody id="ctbComparativoBody"></tbody>
+                </table>
+              </div>
+            </div>
+
             <div class="subtabs" id="ctbAnioTabs"></div>
 
             <div class="panel">
@@ -1306,7 +1317,9 @@
     <div class="modal-body">
       <div class="field">
         <label>Cliente</label>
-        <select id="svcCliente"></select>
+        <input type="text" id="svcClienteBuscar" placeholder="Escribe para buscar el cliente…" autocomplete="off">
+        <input type="hidden" id="svcCliente">
+        <div id="svcClienteResults" style="position:relative;"></div>
       </div>
       <div class="field">
         <label>Trabajador asignado</label>
@@ -1560,6 +1573,7 @@
     editingServiceId: null,
     editingWorkerId: null,
     clienteModalChained: false,
+    svcClientesCache: [],
     editingClienteKey: null,
     temporadas: [],
     camStream: null,
@@ -2355,6 +2369,29 @@
     });
   }
 
+  function renderComparativoAnios(meses, anios){
+    var panel = document.getElementById("ctbComparativoPanel");
+    var body = document.getElementById("ctbComparativoBody");
+    if (!anios || anios.length < 2) { panel.style.display = "none"; return; }  // solo tiene sentido con 2+ años
+    var porAnio = {};
+    meses.forEach(function(m){
+      var e = porAnio[m.anio] = porAnio[m.anio] || {ing:0, gasto:0};
+      e.ing += m.ingreso_total || 0;
+      e.gasto += m.gasto_total_deducible || 0;
+    });
+    body.innerHTML = "";
+    anios.slice().sort().forEach(function(a){
+      var e = porAnio[a] || {ing:0, gasto:0};
+      var tr = el("tr");
+      tr.appendChild(el("td", null, String(a)));
+      tr.appendChild(el("td", "num", money(e.ing)));
+      tr.appendChild(el("td", "num", money(e.gasto)));
+      tr.appendChild(el("td", "num", money(e.ing - e.gasto)));
+      body.appendChild(tr);
+    });
+    panel.style.display = "";
+  }
+
   function abrirContabilidadEmpresa(empresaId){
     document.getElementById("contabilidadListPanel").style.display = "none";
     document.getElementById("contabilidadDetallePanel").style.display = "";
@@ -2370,6 +2407,7 @@
       state.contabilidadAnio = anios.length ? anios[anios.length - 1] : null;
       document.getElementById("ctbEmpresaNombre").textContent = r[0].empresa.nombre;
       document.getElementById("ctbEmpresaGiro").textContent = r[0].empresa.giro || "";
+      renderComparativoAnios(r[0].meses, anios);
       var tabsWrap = document.getElementById("ctbAnioTabs");
       tabsWrap.innerHTML = "";
       anios.forEach(function(a){
@@ -3099,44 +3137,80 @@
     o.addEventListener("click", function(e){ if(e.target===o){ o.classList.remove("open"); if(o.id==="overlayServicio") stopCamera(); } });
   });
 
-  // ---- nuevo/editar servicio ----
-  function fillClienteSelect(sel, selectedKey){
+  // ---- nuevo/editar servicio: buscador de cliente ----
+  var svcBuscarTimer = null;
+  function fillClienteSelect(hidden, selectedKey){
     return api("/api/clientes/buscar").then(function(lista){
-      sel.innerHTML = "";
-      var nuevo = el("option"); nuevo.value="__new__"; nuevo.textContent="➕ Crear nuevo cliente…"; sel.appendChild(nuevo);
-      lista.forEach(function(c){
-        var o = el("option"); o.value = c.tipo + ":" + c.id; o.textContent = c.nombre + (c.tipo==="empresa"?" (empresa)":"");
-        o.dataset.tieneSsn = c.tiene_ssn ? "1" : "";
-        sel.appendChild(o);
-      });
-      if (selectedKey) sel.value = selectedKey;
-      actualizarClienteTieneSSN();
+      state.svcClientesCache = lista;
+      var byKey = {};
+      lista.forEach(function(c){ byKey[c.tipo + ":" + c.id] = c; });
+      var inp = document.getElementById("svcClienteBuscar");
+      document.getElementById("svcClienteResults").innerHTML = "";
+      if (selectedKey && byKey[selectedKey]) {
+        var c = byKey[selectedKey];
+        hidden.value = selectedKey; inp.value = c.nombre; state.clienteTieneSSN = !!c.tiene_ssn;
+      } else {
+        hidden.value = ""; inp.value = ""; state.clienteTieneSSN = false;
+      }
     });
   }
-  function actualizarClienteTieneSSN(){
-    var sel = document.getElementById("svcCliente");
-    var opt = sel.options[sel.selectedIndex];
-    state.clienteTieneSSN = !!(opt && opt.dataset.tieneSsn);
+  function actualizarClienteTieneSSN(){ /* se mantiene en state.clienteTieneSSN al elegir */ }
+  function abrirNuevoClienteDesdeServicio(){
+    state.clienteModalChained = true;
+    state.editingClienteKey = null;
+    document.getElementById("clienteModalTitle").textContent = "Nuevo cliente / empresa";
+    document.getElementById("btnGuardarCliente").textContent = "Guardar cliente";
+    document.getElementById("cliTipo").disabled = false;
+    document.getElementById("cliNombre").value = document.getElementById("svcClienteBuscar").value.trim();
+    document.getElementById("cliTelefono").value = "";
+    document.getElementById("cliSsn").value = "";
+    document.getElementById("cliGiro").value = "";
+    document.getElementById("cliTipo").value = "persona";
+    document.getElementById("cliGiroWrap").style.display = "none";
+    document.getElementById("cliSsnLabel").textContent = "SSN / ITIN completo";
+    openModal("overlayCliente");
   }
-  document.getElementById("svcCliente").addEventListener("change", function(){
-    if (this.value === "__new__") {
-      state.clienteModalChained = true;
-      state.editingClienteKey = null;
-      document.getElementById("clienteModalTitle").textContent = "Nuevo cliente / empresa";
-      document.getElementById("btnGuardarCliente").textContent = "Guardar cliente";
-      document.getElementById("cliTipo").disabled = false;
-      document.getElementById("cliNombre").value = "";
-      document.getElementById("cliTelefono").value = "";
-      document.getElementById("cliSsn").value = "";
-      document.getElementById("cliGiro").value = "";
-      document.getElementById("cliTipo").value = "persona";
-      document.getElementById("cliGiroWrap").style.display = "none";
-      document.getElementById("cliSsnLabel").textContent = "SSN / ITIN completo";
-      openModal("overlayCliente");
-      return;
-    }
-    actualizarClienteTieneSSN();
-    actualizarVisibilidadSSN();
+  (function bindSvcClienteBuscador(){
+    var inp = document.getElementById("svcClienteBuscar");
+    inp.addEventListener("input", function(){
+      document.getElementById("svcCliente").value = "";  // se limpia hasta elegir uno
+      clearTimeout(svcBuscarTimer);
+      svcBuscarTimer = setTimeout(renderSvcClienteResultados, 180);
+    });
+    inp.addEventListener("focus", renderSvcClienteResultados);
+  })();
+  function renderSvcClienteResultados(){
+    var cont = document.getElementById("svcClienteResults");
+    var q = document.getElementById("svcClienteBuscar").value.trim().toLowerCase();
+    var lista = state.svcClientesCache || [];
+    var filtrada = q ? lista.filter(function(c){ return c.nombre.toLowerCase().indexOf(q) > -1; }) : lista.slice(0, 30);
+    cont.innerHTML = "";
+    var box = el("div");
+    box.style.cssText = "position:absolute; z-index:30; background:var(--card,#fff); border:1px solid var(--line); border-radius:8px; max-height:240px; overflow:auto; width:100%; box-shadow:0 6px 20px rgba(0,0,0,.14);";
+    var nuevo = el("div", null, "➕ Crear nuevo cliente…");
+    nuevo.style.cssText = "padding:9px 11px; cursor:pointer; font-weight:600; border-bottom:1px solid var(--line);";
+    nuevo.addEventListener("mousedown", function(e){ e.preventDefault(); cont.innerHTML=""; abrirNuevoClienteDesdeServicio(); });
+    box.appendChild(nuevo);
+    filtrada.slice(0, 40).forEach(function(c){
+      var row = el("div", null, c.nombre + (c.tipo === "empresa" ? ' <span class="hint">(empresa)</span>' : ''));
+      row.style.cssText = "padding:8px 11px; cursor:pointer;";
+      row.addEventListener("mouseenter", function(){ row.style.background = "var(--sidebar-hover,rgba(0,0,0,.05))"; });
+      row.addEventListener("mouseleave", function(){ row.style.background = ""; });
+      row.addEventListener("mousedown", function(e){
+        e.preventDefault();
+        document.getElementById("svcCliente").value = c.tipo + ":" + c.id;
+        document.getElementById("svcClienteBuscar").value = c.nombre;
+        state.clienteTieneSSN = !!c.tiene_ssn;
+        cont.innerHTML = "";
+        actualizarVisibilidadSSN();
+      });
+      box.appendChild(row);
+    });
+    cont.appendChild(box);
+  }
+  document.addEventListener("click", function(e){
+    var wrap = document.getElementById("svcClienteResults");
+    if (wrap && !wrap.contains(e.target) && e.target.id !== "svcClienteBuscar") wrap.innerHTML = "";
   });
 
   function fillTipoSelect(sel, allowed, selectedTipo){
@@ -4109,10 +4183,40 @@
       if (!rows.length) { tbody.innerHTML = '<tr><td colspan="9"><p class="hint" style="padding:14px 0;">Sin resultados.</p></td></tr>'; return; }
       rows.forEach(function(r){
         var tr = el("tr","row-click");
-        tr.innerHTML =
-          '<td>'+r.fecha+'</td><td>'+r.cliente+'</td><td>'+r.tipo+'</td><td>'+r.trabajador+'</td>' +
-          '<td class="num">'+money(r.cobro)+'</td><td>'+(r.metodo_pago||"—")+'</td><td>'+statusPill(r.estatus)+'</td>' +
-          '<td class="num">'+money(r.comision_monto)+'</td><td>'+(r.comision_estado||"—")+'</td>';
+        function guardarRapido(body){
+          api("/api/servicios/" + r.id + "/estatus-rapido", {method:"PUT", body: body})
+            .catch(function(e){ alert("No se pudo actualizar: " + e.message); });
+        }
+        var conf = SERVICE_TYPES[r.tipo];
+        var esTaxes = conf && conf.linea === "Taxes";
+
+        var tdFecha = el("td", null, fmtFecha(r.fecha));
+        var tdCliente = el("td", null, r.cliente);
+        var tdTipo = el("td", null, r.tipo);
+        var tdTrab = el("td", null, r.trabajador);
+        var tdCobro = el("td", "num", money(r.cobro));
+
+        // Método (editable inline)
+        var tdMetodo = el("td");
+        var selMetodo = el("select", "status-select neutral");
+        var vacio = el("option"); vacio.value = ""; vacio.textContent = "Sin especificar"; selMetodo.appendChild(vacio);
+        METODOS_PAGO.forEach(function(op){ var o=el("option"); o.value=op; o.textContent=op; selMetodo.appendChild(o); });
+        if (r.metodo_pago && METODOS_PAGO.indexOf(r.metodo_pago) === -1) { var ex=el("option"); ex.value=r.metodo_pago; ex.textContent=r.metodo_pago; selMetodo.insertBefore(ex, selMetodo.firstChild.nextSibling); }
+        selMetodo.value = r.metodo_pago || "";
+        selMetodo.addEventListener("click", function(e){ e.stopPropagation(); });
+        selMetodo.addEventListener("change", function(){ guardarRapido({metodo_pago: selMetodo.value}); });
+        tdMetodo.appendChild(selMetodo);
+
+        // Estatus de pago (editable inline)
+        var tdEstatus = el("td");
+        var opcionesPago = esTaxes ? ESTATUS_PAGO_TAXES : ESTATUS_PAGO_BASE;
+        var selEstatus = inlineStatusSelect(opcionesPago, r.estatus || "", function(v){ guardarRapido({estatus: v}); });
+        tdEstatus.appendChild(selEstatus);
+
+        var tdComision = el("td", "num", money(r.comision_monto));
+        var tdComEstado = el("td", null, r.comision_estado || "—");
+
+        [tdFecha, tdCliente, tdTipo, tdTrab, tdCobro, tdMetodo, tdEstatus, tdComision, tdComEstado].forEach(function(td){ tr.appendChild(td); });
         tr.addEventListener("click", function(){ openServicioModal(r.id, null); });
         tbody.appendChild(tr);
       });

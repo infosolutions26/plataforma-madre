@@ -232,4 +232,14 @@ def rellenar_plantilla(
     meta = {"name": f"Entregable Contabilidad — {nombre_cliente} ({datos.get('periodo_meses','')})", "mimeType": GDOC_MIME}
     if carpeta_id:
         meta["parents"] = [carpeta_id]
-    return svc.files().create(body=meta, media_body=media, fields="id, webViewLink").execute()
+    f = svc.files().create(body=meta, media_body=media, fields="id, webViewLink").execute()
+    # El Doc lo crea la cuenta de servicio (documentos@...): sin compartir, nadie
+    # más lo puede abrir. Lo dejamos editable para cualquiera con el link (es una
+    # herramienta interna; el link se comparte dentro del equipo).
+    try:
+        svc.permissions().create(
+            fileId=f["id"], body={"type": "anyone", "role": "writer"}, fields="id",
+        ).execute()
+    except Exception:  # noqa: BLE001 — si falla el permiso, igual devolvemos el link
+        pass
+    return f
