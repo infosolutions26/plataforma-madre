@@ -76,9 +76,10 @@ STATEMENT_SCHEMA = {
                     "date": {"type": "string", "description": "Fecha de la transacción, YYYY-MM-DD. Si solo hay mes/día, usa el año del periodo."},
                     "description": {"type": "string", "description": "Descripción/concepto tal cual aparece, sin modificar."},
                     "merchant": {"type": "string", "description": "El COMERCIO o beneficiario LIMPIO, sin la fecha, ciudad, estado, número de tarjeta, número de referencia ni el tipo de transacción. Ej. de 'Card purchase 01/06 STARBUCKS #123 AURORA IL Card 3916' extrae 'STARBUCKS'; de 'Zelle payment to Gustavo' extrae 'GUSTAVO'; de 'WM SUPERCENTER' extrae 'WALMART' si es reconocible, si no déjalo como aparece. En MAYÚSCULAS. Para cargos genéricos del banco (monthly service fee, atm fee, withdrawal) usa una etiqueta corta del concepto."},
+                    "metodo": {"type": "string", "enum": ["zelle", "deposito", "cheque", "tarjeta", "atm", "transferencia", "cargo", "otro"], "description": "El MÉTODO/tipo de la transacción: 'zelle' (Zelle), 'deposito' (depósito directo/nómina/ACH credit), 'cheque' (check paid/cheque), 'tarjeta' (compra con tarjeta débito/crédito - card purchase), 'atm' (retiro/depósito en cajero), 'transferencia' (wire/online transfer/payment sent), 'cargo' (comisión/fee/interés del banco), 'otro' si no encaja."},
                     "amount": {"type": "number", "description": "Monto SIEMPRE positivo; el signo lo da 'type'."},
                 },
-                "required": ["type", "date", "description", "merchant", "amount"],
+                "required": ["type", "date", "description", "merchant", "metodo", "amount"],
             },
         },
     },
@@ -247,20 +248,23 @@ def ingerir_estado(
         monto = abs(float(tx.get("amount") or 0))
         if not monto:
             continue
+        comercio_txt = (tx.get("merchant") or tx.get("description") or "").strip()
+        metodo = tx.get("metodo") or "otro"
         if tx.get("type") == "Deposits and Credits":
             db.add(Ingreso(
                 empresa_id=cuenta.empresa_id, persona_id=cuenta.persona_id,
                 cuenta_id=cuenta.id, corte_id=corte.id, fecha=fecha_tx, monto=monto,
+                metodo=metodo, concepto=comercio_txt or None,
             ))
             suma_ingreso += monto
         else:  # Withdrawals and Debits / Checks
             # 'merchant' (comercio limpio que da el modelo) es lo que agrupa y matchea
             # contra el diccionario; si no vino, cae a la descripción completa.
-            comercio_txt = (tx.get("merchant") or tx.get("description") or "").strip()
             com = dicc.get(normaliza_comercio(comercio_txt))
             db.add(Gasto(
                 empresa_id=cuenta.empresa_id, persona_id=cuenta.persona_id,
                 cuenta_id=cuenta.id, corte_id=corte.id, fecha=fecha_tx, monto=monto,
+                metodo=metodo,
                 comercio_raw=comercio_txt or tx.get("description", ""),
                 comercio_id=com.id if com else None,
                 categoria_id=com.categoria_sugerida_id if com else None,

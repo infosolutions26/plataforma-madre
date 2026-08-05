@@ -209,6 +209,7 @@ class Gasto(Base):
     corte_id: Mapped[int] = mapped_column(ForeignKey("corte_estado_cuenta.id"))
     fecha: Mapped[date] = mapped_column(Date)  # define el mes del entregable — nunca el periodo del corte
     monto: Mapped[float] = mapped_column(Numeric(12, 2))
+    metodo: Mapped[Optional[str]] = mapped_column(String(20))  # zelle|deposito|cheque|tarjeta|atm|transferencia|cargo|otro
     comercio_raw: Mapped[str] = mapped_column(String(300))  # texto tal cual vino del OCR, para re-normalizar si hace falta
     comercio_id: Mapped[Optional[int]] = mapped_column(ForeignKey("comercio.id"))
     categoria_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categoria_gasto.id"))
@@ -239,6 +240,8 @@ class Ingreso(Base):
     corte_id: Mapped[int] = mapped_column(ForeignKey("corte_estado_cuenta.id"))
     fecha: Mapped[date] = mapped_column(Date)
     monto: Mapped[float] = mapped_column(Numeric(12, 2))
+    metodo: Mapped[Optional[str]] = mapped_column(String(20))  # zelle|deposito|cheque|transferencia|otro
+    concepto: Mapped[Optional[str]] = mapped_column(String(300))  # nombre/beneficiario del ingreso (para unificar depósitos de la misma persona)
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     cuenta: Mapped[CuentaBancaria] = relationship()

@@ -252,6 +252,12 @@
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: ui-monospace, monospace; }
   tr.row-click { cursor: pointer; }
   tr.row-click:hover td { background: var(--surface-3); }
+  .ctb-clasif-grid { display: grid; grid-template-columns: 1fr 340px; gap: 14px; align-items: start; }
+  @media (max-width: 900px) { .ctb-clasif-grid { grid-template-columns: 1fr; } }
+  .ctb-mes-h { font-weight: 700; font-size: 13px; color: var(--accent); margin: 14px 0 4px; }
+  .ctb-mes-h:first-child { margin-top: 0; }
+  .ctb-com-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .ctb-com-row:last-child { border-bottom: none; }
   .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
   .table-wrap table { border-radius: 10px; overflow: hidden; }
   .table-wrap tr:last-child td { border-bottom: none; }
@@ -947,18 +953,30 @@
               <p class="hint" style="margin:8px 0 0;">"Extracción validada" = la suma de lo extraído cuadra con el saldo final del banco. Si sale ⚠, conviene revisar ese PDF antes de armar el entregable.</p>
             </div>
 
-            <!-- Paso 2: clasificación agrupada -->
-            <div class="panel" id="ctbPipeClasifPanel" style="display:none;">
-              <div class="h2row">
-                <h2>Clasificar gastos (agrupados por comercio)</h2>
-                <span class="hint" id="ctbPipeClasifResumen"></span>
+            <!-- Paso 2: clasificación de doble vista -->
+            <div id="ctbPipeClasifPanel" style="display:none;">
+              <div class="ctb-clasif-grid">
+                <!-- listado principal: gasto por gasto, por mes -->
+                <div class="panel" style="margin:0;">
+                  <div class="h2row">
+                    <h2>Gastos del periodo</h2>
+                    <span class="hint" id="ctbPipeClasifResumen"></span>
+                  </div>
+                  <p class="hint" style="margin:-4px 0 10px;">Cada gasto con su método y comercio, agrupado por mes. Puedes cambiar la categoría de un gasto suelto aquí, o usar el panel de la derecha para categorizar todos los de un comercio a la vez.</p>
+                  <div id="ctbPipeGastosBody"></div>
+                </div>
+                <!-- panel lateral: comercios -->
+                <div class="panel" style="margin:0;">
+                  <h2>Comercios <span class="hint" id="ctbPipeComerciosResumen"></span></h2>
+                  <p class="hint" style="margin:-4px 0 10px;">Asigna una categoría a un comercio y se aplica a todos sus gastos. Esto además enseña al sistema.</p>
+                  <div id="ctbPipeComerciosBody" style="max-height:60vh; overflow:auto;"></div>
+                </div>
               </div>
-              <p class="hint" style="margin:-4px 0 10px;">Cada renglón junta todos los gastos del mismo comercio. Ajusta el nombre y la categoría si hace falta y pulsa Confirmar — eso lo enseña al sistema para la próxima. Los que ya traen categoría vienen sugeridos del histórico.</p>
-              <div class="table-wrap">
-                <table>
-                  <thead><tr><th>Comercio</th><th class="num">Veces</th><th class="num">Total</th><th>Categoría</th><th></th></tr></thead>
-                  <tbody id="ctbPipeClasifBody"></tbody>
-                </table>
+              <!-- botones de flujo -->
+              <div class="panel" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                <button class="btn" id="ctbPipeCargarTodo" type="button">Cargar todo al entregable</button>
+                <button class="btn primary" id="ctbPipeGuardar" type="button">Cargar y guardar en histórico</button>
+                <span class="hint" style="flex:1; min-width:220px;">"Cargar todo" arma el entregable (borrador, para ir y venir). "Cargar y guardar" sube los totales del mes al histórico formal — ahí sí es permanente.</span>
               </div>
             </div>
           </div>
@@ -1543,7 +1561,8 @@
     contabilidadDetalle: null,   // {empresa, meses} de la empresa abierta
     contabilidadAnio: null,
     pipeCliente: null,           // {tipo, id, nombre} elegido para cargar/clasificar
-    pipeBuscarTimer: null
+    pipeBuscarTimer: null,
+    pipeClasifData: null
   };
 
   function money(n){ return "$" + Number(n||0).toLocaleString("en-US"); }
@@ -1960,6 +1979,38 @@
     });
     document.getElementById("ctbPipeFiles").addEventListener("change", actualizarBotonSubir);
     document.getElementById("ctbPipeSubir").addEventListener("click", subirEstadosPipe);
+    document.getElementById("ctbPipeCargarTodo").addEventListener("click", function(){
+      if (!state.pipeCliente) return;
+      // pasa al entregable como borrador (no persiste al histórico)
+      entCliente = { tipo: state.pipeCliente.tipo, id: state.pipeCliente.id, nombre: state.pipeCliente.nombre };
+      [...document.querySelectorAll('#ctbTopTabs .subtab')].find(function(e){ return e.dataset.ctbtab === "entregable"; }).click();
+      document.getElementById("ctbEntCliente").value = state.pipeCliente.nombre;
+      document.getElementById("ctbEntClienteElegido").textContent = "Cliente: " + state.pipeCliente.nombre;
+      cargarEntregable();
+    });
+    document.getElementById("ctbPipeGuardar").addEventListener("click", guardarHistoricoPipe);
+  }
+
+  function guardarHistoricoPipe(decision){
+    if (!state.pipeCliente) return;
+    if (state.pipeCliente.tipo !== "empresa") { alert("El histórico formal es por empresa. Para personas usa 'Cargar todo al entregable'."); return; }
+    var btn = document.getElementById("ctbPipeGuardar");
+    btn.disabled = true; btn.textContent = "Guardando…";
+    var body = (typeof decision === "string") ? {decision: decision} : {};
+    api("/api/contabilidad/guardar-historico/empresa/" + state.pipeCliente.id, {method:"POST", body: body}).then(function(r){
+      if (r.necesita_decision) {
+        var meses = r.conflictos.map(function(c){ return MESES_LBL2[c.mes] + " " + c.anio; }).join(", ");
+        var quiere = confirm("Este cliente ya tenía en su histórico: " + meses + ".\n\nAceptar = REEMPLAZAR esos meses con los nuevos totales.\nCancelar = AGREGAR (sumar) a lo que ya había.");
+        btn.disabled = false; btn.textContent = "Cargar y guardar en histórico";
+        guardarHistoricoPipe(quiere ? "reemplazar" : "agregar");
+        return;
+      }
+      btn.textContent = "✓ Guardado (" + r.meses_guardados + " meses)";
+      setTimeout(function(){ btn.disabled = false; btn.textContent = "Cargar y guardar en histórico"; }, 2500);
+    }).catch(function(e){
+      alert("No se pudo guardar: " + e.message);
+      btn.disabled = false; btn.textContent = "Cargar y guardar en histórico";
+    });
   }
 
   function actualizarBotonSubir(){
@@ -2038,62 +2089,99 @@
     });
   }
 
+  var MESES_LBL2 = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+  function selCategoria(valorId, onChange){
+    var sel = el("select", "status-select neutral");
+    var vacia = el("option"); vacia.value = ""; vacia.textContent = "— sin categoría —"; sel.appendChild(vacia);
+    (state.contabilidadCategorias || []).forEach(function(c){
+      var o = el("option"); o.value = c.id; o.textContent = c.nombre; sel.appendChild(o);
+    });
+    if (valorId) sel.value = String(valorId);
+    sel.addEventListener("change", function(){ onChange(sel.value ? Number(sel.value) : null); });
+    return sel;
+  }
+
   function cargarClasificacionPipe(){
     if (!state.pipeCliente) return;
     api("/api/contabilidad/clasificar/" + state.pipeCliente.tipo + "/" + state.pipeCliente.id).then(function(data){
       var panel = document.getElementById("ctbPipeClasifPanel");
-      var body = document.getElementById("ctbPipeClasifBody");
-      if (!data.grupos.length) {
-        panel.style.display = data.cortes.length ? "" : "none";
-        body.innerHTML = '<tr><td colspan="5"><p class="hint" style="padding:14px 0;">No hay gastos pendientes de clasificar para este cliente. 🎉</p></td></tr>';
-        document.getElementById("ctbPipeClasifResumen").textContent = "";
-        return;
-      }
-      panel.style.display = "";
-      var totalPend = data.grupos.reduce(function(a, g){ return a + g.n; }, 0);
-      document.getElementById("ctbPipeClasifResumen").textContent = data.grupos.length + " comercios · " + totalPend + " gastos pendientes";
-      body.innerHTML = "";
-      data.grupos.forEach(function(g){ body.appendChild(filaClasificacion(g)); });
+      if (!data.gastos.length) { panel.style.display = data.cortes.length ? "" : "none"; }
+      else { panel.style.display = ""; }
+      state.pipeClasifData = data;
+      renderGastosPorMes(data.gastos);
+      renderComerciosPanel(data.grupos);
+      var sinCat = data.gastos.filter(function(g){ return !g.categoria_id; }).length;
+      document.getElementById("ctbPipeClasifResumen").textContent =
+        data.gastos.length + " gastos" + (sinCat ? " · " + sinCat + " sin categoría" : " · todos categorizados ✓");
+      document.getElementById("ctbPipeComerciosResumen").textContent = "· " + data.grupos.length;
     }).catch(function(e){ if (e.message !== "no-auth") console.error(e); });
   }
 
-  function filaClasificacion(g){
-    var tr = el("tr");
-    var tdNombre = el("td");
-    var inpN = el("input"); inpN.type = "text"; inpN.value = g.nombre;
-    inpN.style.cssText = "width:100%; border:1px solid var(--line); background:transparent; padding:5px 7px; border-radius:6px; font:inherit; color:inherit;";
-    tdNombre.appendChild(inpN);
-
-    var tdVeces = el("td", "num", String(g.n));
-    var tdTotal = el("td", "num", money(g.total));
-
-    var tdCat = el("td");
-    var sel = el("select", "status-select neutral");
-    var vacia = el("option"); vacia.value = ""; vacia.textContent = "— elegir categoría —"; sel.appendChild(vacia);
-    (state.contabilidadCategorias || []).forEach(function(c){
-      var o = el("option"); o.value = c.id; o.textContent = c.nombre; sel.appendChild(o);
+  function renderGastosPorMes(gastos){
+    var cont = document.getElementById("ctbPipeGastosBody");
+    cont.innerHTML = "";
+    if (!gastos.length) { cont.innerHTML = '<p class="hint" style="padding:12px 0;">No hay gastos. Sube estados de cuenta arriba.</p>'; return; }
+    // agrupar por (anio, mes)
+    var porMes = {};
+    gastos.forEach(function(g){ var k = g.anio + "-" + ("0"+g.mes).slice(-2); (porMes[k] = porMes[k] || []).push(g); });
+    Object.keys(porMes).sort().forEach(function(k){
+      var lista = porMes[k];
+      var g0 = lista[0];
+      var total = lista.reduce(function(a, g){ return a + g.monto; }, 0);
+      var h = el("div", "ctb-mes-h", MESES_LBL2[g0.mes] + " " + g0.anio + " — " + lista.length + " gastos · " + money(total));
+      cont.appendChild(h);
+      var tw = el("div", "table-wrap");
+      var table = el("table");
+      table.innerHTML = "<thead><tr><th>Fecha</th><th>Concepto</th><th class='num'>Monto</th><th>Categoría</th></tr></thead>";
+      var tb = el("tbody");
+      lista.forEach(function(g){
+        var tr = el("tr");
+        tr.appendChild(el("td", null, fmtFecha(g.fecha)));
+        var concepto = (g.metodo_lbl ? '<span class="pill neutral" style="margin-right:5px;">' + g.metodo_lbl + '</span>' : '') + g.comercio;
+        tr.appendChild(el("td", null, concepto));
+        tr.appendChild(el("td", "num", money(g.monto)));
+        var tdc = el("td");
+        tdc.appendChild(selCategoria(g.categoria_id, function(catId){
+          api("/api/contabilidad/gasto/" + g.id, {method:"PUT", body:{categoria_id: catId}})
+            .then(function(){ g.categoria_id = catId; actualizarResumenClasif(); })
+            .catch(function(e){ alert("No se pudo: " + e.message); });
+        }));
+        tr.appendChild(tdc);
+        tb.appendChild(tr);
+      });
+      table.appendChild(tb); tw.appendChild(table); cont.appendChild(tw);
     });
-    if (g.categoria_id) sel.value = String(g.categoria_id);
-    tdCat.appendChild(sel);
+  }
 
-    var tdBtn = el("td");
-    var btn = el("button", "btn primary small", "Confirmar"); btn.type = "button";
-    btn.addEventListener("click", function(){
-      var catId = sel.value ? Number(sel.value) : null;
-      if (!catId) { alert("Elige una categoría para este comercio."); return; }
-      btn.disabled = true; btn.textContent = "…";
-      api("/api/contabilidad/clasificar", {method:"POST", body:{
-        gasto_ids: g.gasto_ids, nombre_comercio: inpN.value.trim() || g.nombre, categoria_id: catId,
-      }}).then(function(){
-        tr.style.transition = "opacity .2s"; tr.style.opacity = "0.35";
-        btn.textContent = "✓";
-        setTimeout(cargarClasificacionPipe, 250);  // refresca contadores/pendientes
-      }).catch(function(e){ alert("No se pudo: " + e.message); btn.disabled = false; btn.textContent = "Confirmar"; });
+  function actualizarResumenClasif(){
+    if (!state.pipeClasifData) return;
+    var sinCat = state.pipeClasifData.gastos.filter(function(g){ return !g.categoria_id; }).length;
+    document.getElementById("ctbPipeClasifResumen").textContent =
+      state.pipeClasifData.gastos.length + " gastos" + (sinCat ? " · " + sinCat + " sin categoría" : " · todos categorizados ✓");
+  }
+
+  function renderComerciosPanel(grupos){
+    var cont = document.getElementById("ctbPipeComerciosBody");
+    cont.innerHTML = "";
+    grupos.forEach(function(g){
+      var row = el("div", "ctb-com-row");
+      var izq = el("div"); izq.style.cssText = "flex:1; min-width:0;";
+      var nom = el("div", null, g.nombre); nom.style.cssText = "font-size:12.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;";
+      var sub = el("div", "hint", g.n + "× · " + money(g.total));
+      izq.appendChild(nom); izq.appendChild(sub);
+      row.appendChild(izq);
+      var sel = selCategoria(g.categoria_id, function(catId){
+        // asigna a TODOS los gastos del comercio + enseña al diccionario
+        api("/api/contabilidad/clasificar", {method:"POST", body:{
+          gasto_ids: g.gasto_ids, nombre_comercio: g.nombre, categoria_id: catId,
+        }}).then(function(){ cargarClasificacionPipe(); })  // refresca ambos paneles
+          .catch(function(e){ alert("No se pudo: " + e.message); });
+      });
+      sel.style.width = "150px";
+      row.appendChild(sel);
+      cont.appendChild(row);
     });
-    tdBtn.appendChild(btn);
-
-    [tdNombre, tdVeces, tdTotal, tdCat, tdBtn].forEach(function(td){ tr.appendChild(td); });
-    return tr;
   }
 
   function renderContabilidadEmpresas(){

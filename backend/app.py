@@ -74,6 +74,9 @@ _MIGRACIONES = [
     "ALTER TABLE persona ADD COLUMN ciudad VARCHAR(100)",
     "ALTER TABLE persona ADD COLUMN estado VARCHAR(40)",
     "ALTER TABLE persona ADD COLUMN zip VARCHAR(12)",
+    "ALTER TABLE gasto ADD COLUMN metodo VARCHAR(20)",
+    "ALTER TABLE ingreso ADD COLUMN metodo VARCHAR(20)",
+    "ALTER TABLE ingreso ADD COLUMN concepto VARCHAR(300)",
 ]
 for _sql in _MIGRACIONES:
     try:
@@ -1869,71 +1872,90 @@ async def subir_estados_cuenta(
     return {"resultados": resultados}
 
 
-# ---------- contabilidad: clasificación agrupada por comercio (fase 2) ----------
+# ---------- contabilidad: clasificación (fase 2) ----------
 
-def _filtro_cliente_gasto(query, tipo: str, cliente_id: int):
-    col = Gasto.empresa_id if tipo == "empresa" else Gasto.persona_id
-    return query.filter(col == cliente_id)
+_METODO_LBL = {
+    "zelle": "Zelle", "deposito": "Depósito", "cheque": "Cheque", "tarjeta": "Tarjeta",
+    "atm": "ATM", "transferencia": "Transferencia", "cargo": "Cargo", "otro": "",
+}
+
+
+def _nombre_comercio(g, coms: dict) -> str:
+    return coms.get(g.comercio_id) or (g.comercio_raw or "—")
 
 
 @app.get("/api/contabilidad/clasificar/{tipo}/{cliente_id}")
 def gastos_para_clasificar(
     tipo: str, cliente_id: int, db: Session = Depends(get_db), _=Depends(require_permiso("contabilidad")),
 ):
-    """Devuelve los cortes del cliente y sus gastos pendientes AGRUPADOS por
-    comercio (no uno por uno). Cada grupo trae la categoría ya pre-sugerida del
-    diccionario y todos los gasto_ids que lo componen, ordenados por monto total
-    para atender primero lo más grande."""
+    """Devuelve, para la pantalla de clasificación de doble vista:
+    - `cortes`: los estados de cuenta leídos del cliente.
+    - `gastos`: gasto por gasto (con su método, comercio, fecha y categoría),
+      para el listado principal que se agrupa por mes.
+    - `grupos`: los mismos gastos agrupados por comercio, para el panel lateral
+      (asignar categoría ahí actualiza todos los gastos del comercio)."""
     if tipo not in ("empresa", "persona"):
         raise HTTPException(status_code=400)
-    col = Gasto.empresa_id if tipo == "empresa" else Gasto.persona_id
+    gcol = Gasto.empresa_id if tipo == "empresa" else Gasto.persona_id
     cats = {c.id: c.nombre for c in db.query(CategoriaGasto).all()}
+    coms = {c.id: c.nombre_editado for c in db.query(Comercio).all()}
 
-    # cortes del cliente (vía sus cuentas)
     cuenta_col = CuentaBancaria.empresa_id if tipo == "empresa" else CuentaBancaria.persona_id
     cuentas = db.query(CuentaBancaria).filter(cuenta_col == cliente_id).all()
+    apodo = {c.id: c.apodo for c in cuentas}
     cuenta_ids = [c.id for c in cuentas]
     cortes_info = []
     if cuenta_ids:
-        cortes = db.query(CorteEstadoCuenta).filter(CorteEstadoCuenta.cuenta_id.in_(cuenta_ids)).order_by(CorteEstadoCuenta.fecha_inicio).all()
-        apodo = {c.id: c.apodo for c in cuentas}
-        for co in cortes:
-            n_pend = db.query(Gasto).filter(Gasto.corte_id == co.id, Gasto.clasificado == False).count()  # noqa: E712
+        for co in db.query(CorteEstadoCuenta).filter(CorteEstadoCuenta.cuenta_id.in_(cuenta_ids)).order_by(CorteEstadoCuenta.fecha_inicio).all():
             cortes_info.append({
                 "id": co.id, "cuenta": apodo.get(co.cuenta_id), "tipo_contabilidad": co.tipo_contabilidad,
                 "periodo": f"{co.fecha_inicio.isoformat()} a {co.fecha_fin.isoformat()}",
-                "validado": co.validado, "pendientes": n_pend, "fuente_archivo": co.fuente_archivo,
+                "validado": co.validado, "fuente_archivo": co.fuente_archivo,
             })
 
-    # gastos pendientes agrupados por comercio normalizado
-    pendientes = _filtro_cliente_gasto(db.query(Gasto).filter(Gasto.clasificado == False), tipo, cliente_id).all()  # noqa: E712
-    grupos: dict[str, dict] = {}
-    for g in pendientes:
+    gastos = db.query(Gasto).filter(gcol == cliente_id).order_by(Gasto.fecha).all()
+    gastos_out, grupos = [], {}
+    for g in gastos:
+        nombre = _nombre_comercio(g, coms)
+        gastos_out.append({
+            "id": g.id, "fecha": g.fecha.isoformat(), "anio": g.fecha.year, "mes": g.fecha.month,
+            "metodo": g.metodo, "metodo_lbl": _METODO_LBL.get(g.metodo or "", ""),
+            "comercio": nombre, "cuenta": apodo.get(g.cuenta_id),
+            "monto": float(g.monto or 0), "categoria_id": g.categoria_id, "categoria": cats.get(g.categoria_id),
+        })
         clave = normaliza_comercio(g.comercio_raw or "")
-        grp = grupos.get(clave)
-        if grp is None:
-            grp = grupos[clave] = {
-                "clave": clave, "nombre": g.comercio_raw or clave,
-                "categoria_id": g.categoria_id, "n": 0, "total": 0.0, "gasto_ids": [],
-            }
+        grp = grupos.setdefault(clave, {"clave": clave, "nombre": nombre, "categoria_id": g.categoria_id,
+                                        "n": 0, "total": 0.0, "gasto_ids": []})
         grp["n"] += 1
         grp["total"] += float(g.monto or 0)
         grp["gasto_ids"].append(g.id)
         if grp["categoria_id"] is None and g.categoria_id is not None:
             grp["categoria_id"] = g.categoria_id
-    # nombre bonito desde el diccionario si existe
-    dicc = {c.nombre_normalizado: c for c in db.query(Comercio).filter(Comercio.nombre_normalizado.in_(list(grupos.keys()) or [""])).all()}
-    salida = []
-    for clave, grp in grupos.items():
-        com = dicc.get(clave)
-        salida.append({
-            **grp,
-            "nombre": com.nombre_editado if com else grp["nombre"],
-            "categoria": cats.get(grp["categoria_id"]),
-            "total": round(grp["total"], 2),
-        })
-    salida.sort(key=lambda x: -x["total"])
-    return {"cortes": cortes_info, "grupos": salida}
+    grupos_out = sorted(
+        [{**grp, "categoria": cats.get(grp["categoria_id"]), "total": round(grp["total"], 2)} for grp in grupos.values()],
+        key=lambda x: -x["total"],
+    )
+    return {"cortes": cortes_info, "gastos": gastos_out, "grupos": grupos_out}
+
+
+class GastoCatIn(BaseModel):
+    categoria_id: Optional[int] = None
+
+
+@app.put("/api/contabilidad/gasto/{gasto_id}")
+def editar_gasto_categoria(gasto_id: int, body: GastoCatIn, db: Session = Depends(get_db), _=Depends(require_permiso("contabilidad"))):
+    """Cambia la categoría de UN gasto (edición fina en el listado principal).
+    No toca el diccionario ni los demás gastos del comercio — es un override
+    individual. Se autoguarda mientras el encargado revisa."""
+    g = db.get(Gasto, gasto_id)
+    if not g:
+        raise HTTPException(status_code=404)
+    if body.categoria_id and not db.get(CategoriaGasto, body.categoria_id):
+        raise HTTPException(status_code=400, detail="categoria_id inválida.")
+    g.categoria_id = body.categoria_id
+    g.clasificado = body.categoria_id is not None
+    db.commit()
+    return {"ok": True}
 
 
 class ClasificarIn(BaseModel):
@@ -1944,10 +1966,9 @@ class ClasificarIn(BaseModel):
 
 @app.post("/api/contabilidad/clasificar")
 def clasificar_grupo(body: ClasificarIn, db: Session = Depends(get_db), _=Depends(require_permiso("contabilidad"))):
-    """Confirma la clasificación de un grupo de gastos del mismo comercio:
-    les fija categoría, los marca clasificados, y ENSEÑA al diccionario global
-    (nombre legible + categoría + sube veces_usado) para que la próxima vez la
-    sugerencia salga sola, para cualquier cliente."""
+    """Panel lateral: asigna categoría a TODOS los gastos de un comercio a la vez
+    y ENSEÑA al diccionario global (nombre legible + categoría + veces_usado), para
+    que la próxima vez la sugerencia salga sola para cualquier cliente."""
     if not body.gasto_ids:
         raise HTTPException(status_code=400, detail="No hay gastos que clasificar.")
     gastos = db.query(Gasto).filter(Gasto.id.in_(body.gasto_ids)).all()
@@ -1972,9 +1993,94 @@ def clasificar_grupo(body: ClasificarIn, db: Session = Depends(get_db), _=Depend
     for g in gastos:
         g.categoria_id = body.categoria_id
         g.comercio_id = com.id
-        g.clasificado = True
+        g.clasificado = body.categoria_id is not None
     db.commit()
     return {"ok": True, "clasificados": len(gastos), "comercio_id": com.id}
+
+
+# ---------- contabilidad: guardar el periodo al histórico formal ----------
+
+class GuardarHistoricoIn(BaseModel):
+    decision: Optional[str] = None  # None = solo consultar conflictos; "reemplazar" | "agregar"
+
+
+FUENTE_PIPELINE = "Pipeline OCR"
+
+
+def _rollup_meses(db, tipo: str, cliente_id: int):
+    """Agrega los gastos/ingresos del cliente por (anio, mes) natural, según la
+    fecha de cada uno (regla de oro). Devuelve dict (anio,mes) -> totales."""
+    cats = {c.id: c for c in db.query(CategoriaGasto).all()}
+    gcol = Gasto.empresa_id if tipo == "empresa" else Gasto.persona_id
+    icol = Ingreso.empresa_id if tipo == "empresa" else Ingreso.persona_id
+    meses = {}
+    for g in db.query(Gasto).filter(gcol == cliente_id).all():
+        k = (g.fecha.year, g.fecha.month)
+        e = meses.setdefault(k, {"ingreso": 0.0, "gasto_ded": 0.0, "por_cat": {}})
+        m = float(g.monto or 0)
+        c = cats.get(g.categoria_id)
+        nombre_cat = c.nombre if c else "SIN CATEGORÍA"
+        e["por_cat"][nombre_cat] = e["por_cat"].get(nombre_cat, 0.0) + m
+        if c and c.es_deducible:
+            e["gasto_ded"] += m
+    for i in db.query(Ingreso).filter(icol == cliente_id).all():
+        k = (i.fecha.year, i.fecha.month)
+        meses.setdefault(k, {"ingreso": 0.0, "gasto_ded": 0.0, "por_cat": {}})["ingreso"] += float(i.monto or 0)
+    return meses
+
+
+@app.post("/api/contabilidad/guardar-historico/{tipo}/{cliente_id}")
+def guardar_historico(tipo: str, cliente_id: int, body: GuardarHistoricoIn, db: Session = Depends(get_db), _=Depends(require_permiso("contabilidad"))):
+    """Sube los totales mensuales del periodo trabajado al histórico formal
+    (contabilidad_mensual_historica), para el comparativo año contra año. Si un
+    mes/año ya existía, pide decidir 'reemplazar' (sobrescribe) o 'agregar'
+    (suma al existente). Sin decision, solo devuelve los conflictos para preguntar."""
+    if tipo != "empresa":
+        raise HTTPException(status_code=400, detail="El histórico formal es por empresa. Para personas, usa 'Cargar todo' al entregable.")
+    empresa = db.get(Empresa, cliente_id)
+    if not empresa:
+        raise HTTPException(status_code=404)
+    meses = _rollup_meses(db, tipo, cliente_id)
+    if not meses:
+        raise HTTPException(status_code=400, detail="No hay gastos/ingresos que guardar.")
+
+    # detecta conflictos: meses que ya existen en el histórico (de cualquier fuente)
+    conflictos = []
+    for (anio, mes) in sorted(meses):
+        existe = db.query(ContabilidadMensualHistorica).filter_by(empresa_id=cliente_id, anio=anio, mes=mes).first()
+        if existe:
+            conflictos.append({"anio": anio, "mes": mes})
+
+    if conflictos and not body.decision:
+        return {"necesita_decision": True, "conflictos": conflictos, "meses_totales": len(meses)}
+
+    guardados = 0
+    for (anio, mes), v in sorted(meses.items()):
+        existente = db.query(ContabilidadMensualHistorica).filter_by(
+            empresa_id=cliente_id, anio=anio, mes=mes, fuente_archivo=FUENTE_PIPELINE
+        ).first()
+        # ¿hay conflicto para este mes (cualquier fuente)?
+        hay_conflicto = db.query(ContabilidadMensualHistorica).filter_by(empresa_id=cliente_id, anio=anio, mes=mes).first() is not None
+        if hay_conflicto and body.decision == "agregar" and existente:
+            existente.ingreso_total = float(existente.ingreso_total or 0) + v["ingreso"]
+            existente.gasto_total_deducible = float(existente.gasto_total_deducible or 0) + v["gasto_ded"]
+            merged = dict(existente.gasto_por_categoria or {})
+            for k2, val in v["por_cat"].items():
+                merged[k2] = merged.get(k2, 0.0) + val
+            existente.gasto_por_categoria = merged
+        else:
+            if existente and body.decision == "reemplazar":
+                db.delete(existente)
+                db.flush()
+            db.add(ContabilidadMensualHistorica(
+                empresa_id=cliente_id, nombre_empresa_original=empresa.nombre, anio=anio, mes=mes,
+                ingreso_total=v["ingreso"], gasto_total_deducible=round(v["gasto_ded"], 2),
+                gasto_por_categoria={k2: round(val, 2) for k2, val in v["por_cat"].items()},
+                fuente_archivo=FUENTE_PIPELINE,
+            ))
+        guardados += 1
+    db.commit()
+    return {"ok": True, "meses_guardados": guardados}
 
 
 # ---------- contabilidad: armar entregable (fase 3) ----------
