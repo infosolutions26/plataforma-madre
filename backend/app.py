@@ -2233,14 +2233,73 @@ class GenerarEntregableIn(BaseModel):
 CLAVE_PLANTILLA = "plantilla_contabilidad_doc_id"
 
 
+def _datos_plantilla(db, tipo: str, cliente_id: int) -> dict:
+    """Calcula TODO lo que la plantilla necesita rellenar, desde los gastos ya
+    clasificados: tabla mensual (con saldo neto), matriz categoría×mes,
+    totales por categoría con %, distribución de gasto por mes, y colaboradores
+    (Contract Labor agrupado)."""
+    cats = {c.id: c for c in db.query(CategoriaGasto).all()}
+    coms = {c.id: c.nombre_editado for c in db.query(Comercio).all()}
+    gcol = Gasto.empresa_id if tipo == "empresa" else Gasto.persona_id
+    icol = Ingreso.empresa_id if tipo == "empresa" else Ingreso.persona_id
+    gastos = db.query(Gasto).filter(gcol == cliente_id, Gasto.clasificado == True).all()  # noqa: E712
+    ingresos = db.query(Ingreso).filter(icol == cliente_id).all()
+
+    def catn(g):
+        c = cats.get(g.categoria_id)
+        return c.nombre if c else "SIN CATEGORÍA"
+
+    meses = {}   # mes_num -> {dep, gasto_tot}
+    cat_mes = {} # cat -> {mes_num -> monto}
+    cat_tot = {} # cat -> total
+    colab = {}   # nombre -> total (Contract Labor)
+    total_gastos = 0.0
+    for i in ingresos:
+        meses.setdefault(i.fecha.month, {"dep": 0.0, "gasto": 0.0})["dep"] += float(i.monto or 0)
+    for g in gastos:
+        m = float(g.monto or 0); mes = g.fecha.month; cn = catn(g)
+        meses.setdefault(mes, {"dep": 0.0, "gasto": 0.0})["gasto"] += m
+        cat_mes.setdefault(cn, {}).setdefault(mes, 0.0)
+        cat_mes[cn][mes] += m
+        cat_tot[cn] = cat_tot.get(cn, 0.0) + m
+        total_gastos += m
+        if cn == "CONTRACT LABOR":
+            nom = coms.get(g.comercio_id) or (g.comercio_raw or "—")
+            colab[nom] = colab.get(nom, 0.0) + m
+
+    meses_pres = sorted(meses.keys())
+    anios = sorted({g.fecha.year for g in gastos} | {i.fecha.year for i in ingresos})
+    monthly = {mes: {"dep": round(v["dep"], 2), "gasto": round(v["gasto"], 2),
+                     "saldo": round(v["dep"] - v["gasto"], 2)} for mes, v in meses.items()}
+    dist_mes = {mes: (round(v["gasto"] / total_gastos * 100, 2) if total_gastos else 0.0) for mes, v in meses.items()}
+
+    periodo = ""
+    if meses_pres:
+        periodo = _MESES_ES[meses_pres[0]] + " - " + _MESES_ES[meses_pres[-1]]
+    return {
+        "periodo_meses": periodo,
+        "anio": str(anios[-1]) if anios else "",
+        "fecha_hoy": _MESES_ES[date.today().month] + f" {date.today().day:02d}, {date.today().year}",
+        "monthly": monthly,                 # {mes_num: {dep,gasto,saldo}}
+        "total_dep": round(sum(v["dep"] for v in meses.values()), 2),
+        "total_gasto": round(total_gastos, 2),
+        "cat_mes": cat_mes,                 # {cat: {mes_num: monto}}
+        "cat_tot": {k: round(v, 2) for k, v in cat_tot.items()},
+        "total_gastos": round(total_gastos, 2),
+        "dist_mes": dist_mes,               # {mes_num: pct}
+        "colaboradores": sorted([{"nombre": n, "total": round(t, 2)} for n, t in colab.items()], key=lambda x: -x["total"]),
+    }
+
+
 @app.post("/api/contabilidad/entregable/generar")
 def generar_entregable_endpoint(body: GenerarEntregableIn, db: Session = Depends(get_db), _=Depends(require_permiso("contabilidad"))):
-    """Genera el entregable como Google Doc a partir de la plantilla de membrete,
-    con las tablas/gráficas/notas seleccionadas. Devuelve el link del Doc creado."""
+    """Genera el entregable como Google Doc: copia la plantilla de membrete y
+    RELLENA sus tablas de ejemplo con los datos reales (en su lugar), más los
+    placeholders de texto. Devuelve el link del Doc creado."""
     cfg = db.get(Configuracion, CLAVE_PLANTILLA)
     plantilla_id = (cfg.valor if cfg else "").strip()
     if not plantilla_id:
-        raise HTTPException(status_code=400, detail="Falta configurar la plantilla del membrete (id del Google Doc). Un admin la pone en Configuración.")
+        raise HTTPException(status_code=400, detail="Falta configurar la plantilla del membrete (id del Google Doc).")
     if not drive.disponible():
         raise HTTPException(status_code=503, detail="Drive no está configurado en el servidor.")
 
@@ -2249,21 +2308,21 @@ def generar_entregable_endpoint(body: GenerarEntregableIn, db: Session = Depends
     if not cliente:
         raise HTTPException(status_code=404)
 
-    # carpeta del cliente en Drive (créala si no tiene)
     carpeta_id = cliente.drive_folder_id
     try:
         if not carpeta_id:
             carpeta_id = drive.crear_carpeta_cliente(cliente.nombre, getattr(cliente, "ssn_last4", None))
             cliente.drive_folder_id = carpeta_id
             db.commit()
-    except Exception:  # noqa: BLE001 — si falla la carpeta, igual generamos en la raíz
+    except Exception:  # noqa: BLE001
         carpeta_id = None
 
-    bloques = [b.model_dump() for b in body.bloques]
+    datos = _datos_plantilla(db, body.tipo, body.cliente_id)
+    graficas_png = [b.png for b in body.bloques if b.tipo == "grafica" and b.png]
     try:
-        f = docgen.generar_entregable_gdoc(
+        f = docgen.rellenar_plantilla(
             plantilla_doc_id=plantilla_id, nombre_cliente=cliente.nombre,
-            periodo="", bloques=bloques, notas=body.notas, carpeta_id=carpeta_id,
+            datos=datos, graficas_png=graficas_png, notas=body.notas, carpeta_id=carpeta_id,
         )
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Error generando el documento: {e}")
