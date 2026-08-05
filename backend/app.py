@@ -2163,6 +2163,29 @@ def armar_entregable(
         for n, t in sorted(por_cat.items(), key=lambda kv: orden_cat.get(kv[0], 999))
     ]
 
+    # --- categoría × mes (matriz para la plantilla) ---
+    meses_num = sorted({mm for (_a, mm) in meses.keys()})
+    cm = {}  # cat -> {mes: monto}
+    for g in gastos:
+        cm.setdefault(cat_nombre(g), {}).setdefault(g.fecha.month, 0.0)
+        cm[cat_nombre(g)][g.fecha.month] += float(g.monto or 0)
+    categoria_por_mes = {
+        "meses": [{"mes": m, "mes_nombre": _MESES_ES[m]} for m in meses_num],
+        "filas": [
+            {"categoria": n, "montos": [round(cm[n].get(m, 0.0), 2) for m in meses_num]}
+            for n in sorted(cm.keys(), key=lambda k: orden_cat.get(k, 999))
+        ],
+    }
+
+    # --- distribución de gasto por mes (% del total de gastos) ---
+    gasto_por_mes_num = {}
+    for g in gastos:
+        gasto_por_mes_num[g.fecha.month] = gasto_por_mes_num.get(g.fecha.month, 0.0) + float(g.monto or 0)
+    distribucion_por_mes = [
+        {"mes": m, "mes_nombre": _MESES_ES[m], "porcentaje": round(gasto_por_mes_num.get(m, 0.0) / total_gastos * 100, 2)}
+        for m in meses_num
+    ]
+
     # --- Pago a colaboradores (Contract Labor agrupado por comercio) ---
     colab = {}
     for g in gastos:
@@ -2208,7 +2231,9 @@ def armar_entregable(
     return {
         "cliente": {"tipo": tipo, "id": cliente_id, "nombre": cliente.nombre},
         "tabla_mensual": tabla_mensual,
+        "categoria_por_mes": categoria_por_mes,
         "gastos_por_categoria": gastos_por_categoria,
+        "distribucion_por_mes": distribucion_por_mes,
         "pago_colaboradores": pago_colaboradores,
         "top_frecuencia": top_frecuencia,
         "top_monto": top_monto,
@@ -2225,7 +2250,8 @@ class BloqueEntregable(BaseModel):
     tipo: str  # grafica | tabla
     titulo: str
     subtitulo: Optional[str] = None
-    png: Optional[str] = None          # grafica: PNG en base64
+    template_key: Optional[str] = None    # tabla: a qué tabla de la plantilla mapea (o null = anexar)
+    png: Optional[str] = None             # grafica: PNG en base64
     columnas: Optional[list[str]] = None  # tabla
     filas: Optional[list[list[str]]] = None
 
@@ -2326,10 +2352,23 @@ def generar_entregable_endpoint(body: GenerarEntregableIn, db: Session = Depends
 
     datos = _datos_plantilla(db, body.tipo, body.cliente_id)
     graficas_png = [b.png for b in body.bloques if b.tipo == "grafica" and b.png]
+    # tablas que mapean a la plantilla -> {template_key: [etiquetas incluidas (1a col)]}
+    secciones = {}
+    extras = []
+    for b in body.bloques:
+        if b.tipo != "tabla":
+            continue
+        etiquetas = [(f[0] if f else "") for f in (b.filas or [])]
+        if b.template_key:
+            secciones[b.template_key] = etiquetas
+        else:
+            extras.append({"titulo": b.titulo, "columnas": b.columnas or [], "filas": b.filas or []})
     try:
         f = docgen.rellenar_plantilla(
             plantilla_doc_id=plantilla_id, nombre_cliente=cliente.nombre,
-            datos=datos, graficas_png=graficas_png, notas=body.notas, carpeta_id=carpeta_id,
+            periodo=datos.get("periodo_meses", ""), fecha=datos.get("fecha_hoy", ""),
+            datos=datos, secciones=secciones, extras=extras, graficas_png=graficas_png,
+            notas=body.notas, carpeta_id=carpeta_id,
         )
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Error generando el documento: {e}")

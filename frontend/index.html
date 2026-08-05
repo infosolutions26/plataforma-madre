@@ -1907,12 +1907,13 @@
     var estado = document.getElementById("ctbEntGenEstado");
     var link = document.getElementById("ctbEntLink");
     btn.disabled = true; link.style.display = "none"; estado.textContent = "Preparando gráficas…";
-    // rasterizar las gráficas incluidas
+    // rasterizar las gráficas incluidas; mandar template_key para el llenado en su lugar
     var proms = incluidos.map(function(b){
       if (b.tipo === "grafica") return svgToPng(b.svg).then(function(png){ return {tipo:"grafica", titulo:b.titulo, png:png}; });
       return Promise.resolve({tipo:"tabla", titulo:b.titulo, subtitulo:b.subtitulo||"",
+        template_key: b.template_key || null,
         columnas: b.columnas.map(function(c){return c.label;}),
-        filas: b.filas.map(function(f){ return b.columnas.map(function(c){ return String(f[c.key]===undefined?"":f[c.key]); }); })});
+        filas: b.filas.filter(function(f){ return !f._total; }).map(function(f){ return b.columnas.map(function(c){ return String(f[c.key]===undefined?"":f[c.key]); }); })});
     });
     Promise.all(proms).then(function(bloques){
       estado.textContent = "Generando el Google Doc con tu membrete… (unos segundos)";
@@ -2053,45 +2054,66 @@
       }
       state.entData = d;
       var bloques = [];
+      // Las tablas siguen el ORDEN y la estructura de tu plantilla (lo que ves aquí es lo que sale en el Doc).
+      // template_key mapea cada tabla a su lugar en la plantilla; null = se anexa al final del Doc.
+
       // GRÁFICA 1: depósitos vs gastos por mes
       if (d.tabla_mensual.length){
-        var cats = d.tabla_mensual.map(function(m){ return m.mes_nombre.slice(0,3)+" "+String(m.anio).slice(2); });
+        var catsM = d.tabla_mensual.map(function(m){ return m.mes_nombre.slice(0,3)+" "+String(m.anio).slice(2); });
         bloques.push({tipo:"grafica", titulo:"Gráfica: Depósitos vs Gastos por mes", incluido:true,
-          svg: barChartSVG(cats, [
+          svg: barChartSVG(catsM, [
             {nombre:"Depósitos", color:"#2ea043", valores: d.tabla_mensual.map(function(m){return m.depositos;})},
             {nombre:"Gastos", color:"#e5484d", valores: d.tabla_mensual.map(function(m){return m.gastos_totales;})},
           ])});
       }
-      // GRÁFICA 2: distribución de gastos por categoría (deducibles con monto)
+      // GRÁFICA 2: distribución de gastos por categoría
       var catSlices = d.gastos_por_categoria.filter(function(c){ return c.total>0; })
         .map(function(c,i){ return {label:c.categoria, value:c.total, color:ENT_COLORS[i%ENT_COLORS.length]}; });
       if (catSlices.length){
         bloques.push({tipo:"grafica", titulo:"Gráfica: Distribución de gastos por categoría", incluido:true, svg: pieChartSVG(catSlices)});
       }
-      // TABLA mensual
-      bloques.push({tipo:"tabla", titulo:"Depósitos y gastos por mes", incluido:true,
+      // TABLA mensual (plantilla: TOTAL/DEPÓSITOS/GASTOS/SALDO FINAL)
+      bloques.push({tipo:"tabla", template_key:"mensual", titulo:"Depósitos y gastos por mes", incluido:true,
         columnas:[{key:"periodo",label:"Mes"},{key:"dep",label:"Depósitos",num:true},{key:"ded",label:"Gastos deducibles",num:true},{key:"tot",label:"Gastos totales",num:true}],
         filas: d.tabla_mensual.map(function(m){ return {periodo:m.mes_nombre+" "+m.anio, dep:money2(m.depositos), ded:money2(m.gastos_deducibles), tot:money2(m.gastos_totales)}; })
           .concat([{periodo:"TOTAL", dep:money2(d.totales.depositos), ded:money2(d.totales.gastos_deducibles), tot:money2(d.totales.gastos_totales), _total:true}])});
-      // TABLA categorías
-      bloques.push({tipo:"tabla", titulo:"Gastos por categoría", incluido:true,
+      // TABLA categoría × mes (plantilla)
+      if (d.categoria_por_mes && d.categoria_por_mes.filas.length){
+        var cols = [{key:"cat",label:"Categoría"}];
+        d.categoria_por_mes.meses.forEach(function(m,i){ cols.push({key:"m"+i, label:m.mes_nombre, num:true}); });
+        bloques.push({tipo:"tabla", template_key:"cat_mes", titulo:"Gastos por categoría por mes", incluido:true,
+          columnas: cols,
+          filas: d.categoria_por_mes.filas.map(function(f){
+            var row = {cat:f.categoria};
+            f.montos.forEach(function(v,i){ row["m"+i] = money2(v); });
+            return row;
+          })});
+      }
+      // TABLA gastos por categoría (total + %)
+      bloques.push({tipo:"tabla", template_key:"cat_totales", titulo:"Gastos por categoría", incluido:true,
         columnas:[{key:"cat",label:"Categoría"},{key:"total",label:"Total",num:true},{key:"pct",label:"Porcentaje",num:true}],
         filas: d.gastos_por_categoria.map(function(c){ return {cat:c.categoria, total:money2(c.total), pct:c.porcentaje.toFixed(1)+"%"}; })});
-      // TABLA pago a colaboradores
-      bloques.push({tipo:"tabla", titulo:"Pago a colaboradores (Contract Labor)", incluido:true, subtitulo:"Agrupado automáticamente de la categoría Contract Labor.",
+      // TABLA distribución por mes (%)
+      if (d.distribucion_por_mes && d.distribucion_por_mes.length){
+        bloques.push({tipo:"tabla", template_key:"dist_mes", titulo:"Distribución de gastos por mes", incluido:true,
+          columnas:[{key:"mes",label:"Mes"},{key:"pct",label:"Porcentaje",num:true}],
+          filas: d.distribucion_por_mes.map(function(x){ return {mes:x.mes_nombre, pct:x.porcentaje.toFixed(2)+"%"}; })});
+      }
+      // TABLA pago a colaboradores (plantilla: NOMBRE/MONTO)
+      bloques.push({tipo:"tabla", template_key:"colaboradores", titulo:"Pago a colaboradores (Contract Labor)", incluido:true, subtitulo:"Agrupado automáticamente de la categoría Contract Labor.",
         columnas:[{key:"nombre",label:"Nombre"},{key:"total",label:"Monto",num:true}],
         filas: d.pago_colaboradores.map(function(c){ return {nombre:c.nombre, total:money2(c.total)}; })});
-      // TABLA top frecuencia
-      bloques.push({tipo:"tabla", titulo:"Top 10 comercios por frecuencia", incluido:true, subtitulo:"Excluye Contract Labor, Personal y Savings.",
+      // TABLA top frecuencia (NO en la plantilla — se anexa)
+      bloques.push({tipo:"tabla", template_key:null, titulo:"Top 10 comercios por frecuencia", incluido:true, subtitulo:"Excluye Contract Labor, Personal y Savings.",
         columnas:[{key:"nombre",label:"Comercio"},{key:"veces",label:"Veces",num:true},{key:"total",label:"Total",num:true}],
         filas: d.top_frecuencia.map(function(c){ return {nombre:c.nombre, veces:String(c.veces), total:money2(c.total)}; })});
-      // TABLA top monto
-      bloques.push({tipo:"tabla", titulo:"Top 10 comercios por monto", incluido:true, subtitulo:"Excluye Contract Labor, Personal y Savings.",
+      // TABLA top monto (se anexa)
+      bloques.push({tipo:"tabla", template_key:null, titulo:"Top 10 comercios por monto", incluido:true, subtitulo:"Excluye Contract Labor, Personal y Savings.",
         columnas:[{key:"nombre",label:"Comercio"},{key:"total",label:"Total",num:true},{key:"veces",label:"Veces",num:true}],
         filas: d.top_monto.map(function(c){ return {nombre:c.nombre, total:money2(c.total), veces:String(c.veces)}; })});
-      // TABLA histórico (si hay)
+      // TABLA comparativo de años (se anexa, si hay)
       if (d.historico && d.historico.length){
-        bloques.push({tipo:"tabla", titulo:"Comparativo de años anteriores", incluido:true, subtitulo:"Totales por año del cliente.",
+        bloques.push({tipo:"tabla", template_key:null, titulo:"Comparativo de años anteriores", incluido:true, subtitulo:"Totales por año del cliente.",
           columnas:[{key:"anio",label:"Año"},{key:"ing",label:"Ingresos",num:true},{key:"gasto",label:"Gastos",num:true}],
           filas: d.historico.map(function(h){ return {anio:String(h.anio), ing:money2(h.ingreso_total), gasto:money2(h.gasto_total)}; })});
       }
